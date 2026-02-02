@@ -1,0 +1,5 @@
+server/.venv/
+server/sam2_smoke_out/
+
+**/__pycache__/
+*.pyc

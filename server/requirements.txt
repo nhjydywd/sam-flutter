@@ -1,0 +1,8 @@
+# Runtime deps for server/test_sam2_basic.py
+numpy>=1.24
+Pillow>=10.0
+
+# NOTE:
+# - PyTorch install is platform-specific (CPU/CUDA/MPS). Install it separately.
+# - SAM2 is typically installed from a local clone of Meta's "segment-anything-2"
+#   repo (editable install) or added via PYTHONPATH.
