@@ -1,5 +1,6 @@
 server/.venv/
 server/sam2_smoke_out/
+server/models/sam2/
 
 **/__pycache__/
 *.pyc

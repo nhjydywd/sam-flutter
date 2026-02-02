@@ -2,20 +2,13 @@
 
 ## macOS setup (venv)
 
-One-shot setup:
+One-click launch (creates venv if needed, installs deps, downloads the smallest SAM2 model, then runs):
 
 ```bash
-./server/setup_macos.sh
+./server/launch.sh --image /path/to/image.jpg --point 320 240
 ```
 
-If you also have local clones of SAM1/SAM2, you can install them into the same venv:
-
-```bash
-SAM1_REPO=/abs/path/to/segment-anything \
-SAM2_REPO=/abs/path/to/segment-anything-2 \
-DOWNLOAD_SAM2_TINY=1 \
-./server/setup_macos.sh
-```
+(`./server/setup_macos.sh` is now just a wrapper around `./server/launch.sh`.)
 
 ## SAM2 basic smoke test
 
@@ -34,9 +27,9 @@ python3 server/manage_model.py
 
 ### Install deps
 
-Recommended: use `./server/setup_macos.sh` (creates a venv and installs deps).
+Recommended: use `./server/launch.sh` (it installs deps automatically).
 
-Manual alternative (create/activate a venv, then):
+Manual alternative (create/activate a venv, then install):
 
 ```bash
 python3 -m pip install -r server/requirements.txt

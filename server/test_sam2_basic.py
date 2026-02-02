@@ -46,6 +46,50 @@ else:  # pragma: no cover
     _SAM2_IMPORT_ERROR = None
 
 
+def _discover_local_sam2_models(server_dir: Path) -> list[tuple[str, Path, Path]]:
+    """
+    Returns a list of (key, cfg_path, checkpoint_path) for models that have both files present.
+
+    We only list locally usable pairs, so the selection UI can't produce an invalid config/ckpt combo.
+    """
+    base = server_dir / "models" / "sam2"
+    candidates: list[tuple[str, Path, Path]] = [
+        ("sam2.1_hiera_tiny", base / "sam2.1_hiera_t.yaml", base / "sam2.1_hiera_tiny.pt"),
+        ("sam2.1_hiera_small", base / "sam2.1_hiera_s.yaml", base / "sam2.1_hiera_small.pt"),
+        ("sam2.1_hiera_base_plus", base / "sam2.1_hiera_b+.yaml", base / "sam2.1_hiera_base_plus.pt"),
+        ("sam2.1_hiera_large", base / "sam2.1_hiera_l.yaml", base / "sam2.1_hiera_large.pt"),
+    ]
+
+    usable: list[tuple[str, Path, Path]] = []
+    for key, cfg, ckpt in candidates:
+        if cfg.is_file() and ckpt.is_file() and ckpt.stat().st_size > 0:
+            usable.append((key, cfg, ckpt))
+    return usable
+
+
+def _prompt_select_model(models: list[tuple[str, Path, Path]]) -> tuple[str, str]:
+    print("Available SAM2 models:")
+    for i, (key, cfg, ckpt) in enumerate(models, start=1):
+        size_mb = ckpt.stat().st_size / (1024 * 1024)
+        print(f"  [{i}] {key}  ({size_mb:.1f}MB)  cfg={cfg.name}  ckpt={ckpt.name}")
+
+    while True:
+        raw = input("Select a model index (default 1), or 'q' to quit: ").strip()
+        if raw == "":
+            idx = 1
+            break
+        if raw.lower() == "q":
+            raise SystemExit(0)
+        if raw.isdigit():
+            idx = int(raw)
+            if 1 <= idx <= len(models):
+                break
+        print("Invalid selection.")
+
+    _key, cfg, ckpt = models[idx - 1]
+    return str(cfg), str(ckpt)
+
+
 def _best_device(requested: str) -> str:
     if requested != "auto":
         return requested
@@ -197,16 +241,27 @@ def main() -> int:
 
     model_cfg = args.model_cfg or os.environ.get("SAM2_MODEL_CFG")
     checkpoint = args.checkpoint or os.environ.get("SAM2_CHECKPOINT")
-    if not model_cfg or not checkpoint:
-        # Convenience default: if the user downloaded weights/config into this repo,
-        # pick them up automatically.
+
+    # Either provide both explicitly, or neither (then select from local models).
+    if bool(model_cfg) ^ bool(checkpoint):
+        raise SystemExit("Provide both --model-cfg and --checkpoint (or neither to select a local model).")
+
+    if not model_cfg and not checkpoint:
         server_dir = Path(__file__).resolve().parent
-        default_cfg = server_dir / "models" / "sam2" / "sam2.1_hiera_t.yaml"
-        default_ckpt = server_dir / "models" / "sam2" / "sam2.1_hiera_tiny.pt"
-        if not model_cfg and default_cfg.exists():
-            model_cfg = str(default_cfg)
-        if not checkpoint and default_ckpt.exists():
-            checkpoint = str(default_ckpt)
+        local_models = _discover_local_sam2_models(server_dir)
+        if not local_models:
+            raise SystemExit(
+                "No usable SAM2 models found under server/models/sam2 (need BOTH cfg yaml + checkpoint).\n"
+                "Quick start:\n"
+                "  ./server/download_sam2_tiny.sh\n"
+                "Or manage downloads:\n"
+                "  python3 server/manage_model.py\n"
+                "Expected example paths:\n"
+                "  server/models/sam2/sam2.1_hiera_t.yaml\n"
+                "  server/models/sam2/sam2.1_hiera_tiny.pt"
+            )
+        model_cfg, checkpoint = _prompt_select_model(local_models)
+
     if not model_cfg or not checkpoint:
         raise SystemExit(
             "Missing --model-cfg/--checkpoint (or env SAM2_MODEL_CFG/SAM2_CHECKPOINT).\n"

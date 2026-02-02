@@ -1,8 +1,15 @@
-# Runtime deps for server/test_sam2_basic.py
+# One-click runtime deps for this repo's server scripts.
+#
+# Notes:
+# - `sam2` is installed from the official GitHub repo via a VCS URL.
+# - SAM2 recommends torch>=2.5.1 / torchvision>=0.20.1 (per upstream README).
+# - On macOS / CPU-only machines, we set SAM2_BUILD_CUDA=0 during install to avoid CUDA builds.
+
 numpy>=1.24
 Pillow>=10.0
 
-# NOTE:
-# - PyTorch install is platform-specific (CPU/CUDA/MPS). Install it separately.
-# - SAM2 is typically installed from a local clone of Meta's "segment-anything-2"
-#   repo (editable install) or added via PYTHONPATH.
+torch>=2.5.1
+torchvision>=0.20.1
+
+# SAM2 code (provides `import sam2`)
+git+https://github.com/facebookresearch/sam2.git

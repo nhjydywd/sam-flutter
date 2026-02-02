@@ -1,5 +1,4 @@
 # Local model weights / configs (do not commit large files)
-sam1/
 sam2/
 *.pt
 *.pth

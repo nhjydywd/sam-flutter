@@ -3,8 +3,7 @@
 Model manager for this repo.
 
 Supports downloading model weights for:
-  - SAM (SAM1): 3 checkpoints (vit_h, vit_l, vit_b)
-  - SAM2.1:     4 checkpoints (hiera_tiny/small/base_plus/large)
+  - SAM2.1: 4 checkpoints (hiera_tiny/small/base_plus/large) + their config YAMLs
 
 It prints which models are already present under server/models/, which are missing,
 then prompts you to download by index (or 'a' to download all missing).
@@ -29,9 +28,16 @@ class ModelSpec:
     family: str
     filename: str
     url: str
+    cfg_filename: str | None = None
+    cfg_url: str | None = None
 
     def local_path(self, repo_root: Path) -> Path:
         return repo_root / "server" / "models" / self.family / self.filename
+
+    def cfg_local_path(self, repo_root: Path) -> Path | None:
+        if not self.cfg_filename:
+            return None
+        return repo_root / "server" / "models" / self.family / self.cfg_filename
 
 
 def _repo_root() -> Path:
@@ -40,59 +46,46 @@ def _repo_root() -> Path:
 
 
 def _catalog() -> List[ModelSpec]:
-    # SAM (v1) official checkpoints
-    sam1_base = "https://dl.fbaipublicfiles.com/segment_anything"
-    sam1 = [
-        ModelSpec(
-            key="sam1_vit_h",
-            family="sam1",
-            filename="sam_vit_h_4b8939.pth",
-            url=f"{sam1_base}/sam_vit_h_4b8939.pth",
-        ),
-        ModelSpec(
-            key="sam1_vit_l",
-            family="sam1",
-            filename="sam_vit_l_0b3195.pth",
-            url=f"{sam1_base}/sam_vit_l_0b3195.pth",
-        ),
-        ModelSpec(
-            key="sam1_vit_b",
-            family="sam1",
-            filename="sam_vit_b_01ec64.pth",
-            url=f"{sam1_base}/sam_vit_b_01ec64.pth",
-        ),
-    ]
-
     # SAM2.1 official checkpoints (recommended)
     sam2_base = "https://dl.fbaipublicfiles.com/segment_anything_2/092824"
+    sam2_cfg_base = "https://raw.githubusercontent.com/facebookresearch/sam2/main/sam2/configs/sam2.1"
     sam2_1 = [
         ModelSpec(
             key="sam2.1_hiera_tiny",
             family="sam2",
             filename="sam2.1_hiera_tiny.pt",
             url=f"{sam2_base}/sam2.1_hiera_tiny.pt",
+            cfg_filename="sam2.1_hiera_t.yaml",
+            cfg_url=f"{sam2_cfg_base}/sam2.1_hiera_t.yaml",
         ),
         ModelSpec(
             key="sam2.1_hiera_small",
             family="sam2",
             filename="sam2.1_hiera_small.pt",
             url=f"{sam2_base}/sam2.1_hiera_small.pt",
+            cfg_filename="sam2.1_hiera_s.yaml",
+            cfg_url=f"{sam2_cfg_base}/sam2.1_hiera_s.yaml",
         ),
         ModelSpec(
             key="sam2.1_hiera_base_plus",
             family="sam2",
             filename="sam2.1_hiera_base_plus.pt",
             url=f"{sam2_base}/sam2.1_hiera_base_plus.pt",
+            cfg_filename="sam2.1_hiera_b+.yaml",
+            # '+' in the filename; encode to avoid ambiguity in some tooling.
+            cfg_url=f"{sam2_cfg_base}/sam2.1_hiera_b%2B.yaml",
         ),
         ModelSpec(
             key="sam2.1_hiera_large",
             family="sam2",
             filename="sam2.1_hiera_large.pt",
             url=f"{sam2_base}/sam2.1_hiera_large.pt",
+            cfg_filename="sam2.1_hiera_l.yaml",
+            cfg_url=f"{sam2_cfg_base}/sam2.1_hiera_l.yaml",
         ),
     ]
 
-    return sam1 + sam2_1
+    return sam2_1
 
 
 def _is_present(path: Path) -> bool:
@@ -100,6 +93,24 @@ def _is_present(path: Path) -> bool:
         return path.is_file() and path.stat().st_size > 0
     except FileNotFoundError:
         return False
+
+
+def _model_present(m: ModelSpec, root: Path) -> bool:
+    ckpt_ok = _is_present(m.local_path(root))
+    cfg_path = m.cfg_local_path(root)
+    if cfg_path is None:
+        return ckpt_ok
+    return ckpt_ok and _is_present(cfg_path)
+
+
+def _missing_parts(m: ModelSpec, root: Path) -> list[str]:
+    missing: list[str] = []
+    if not _is_present(m.local_path(root)):
+        missing.append("ckpt")
+    cfg_path = m.cfg_local_path(root)
+    if cfg_path is not None and not _is_present(cfg_path):
+        missing.append("cfg")
+    return missing
 
 
 def _fmt_size(num_bytes: int) -> str:
@@ -165,22 +176,26 @@ def _download(url: str, out_path: Path, timeout_s: int = 60) -> None:
 
 
 def _print_inventory(models: Sequence[ModelSpec], root: Path) -> None:
-    sam1_count = sum(1 for m in models if m.family == "sam1")
     sam2_count = sum(1 for m in models if m.family == "sam2")
-    print(f"SAM (v1) models: {sam1_count}")
-    print(f"SAM2.1 models:   {sam2_count}")
+    print(f"SAM2.1 models: {sam2_count}")
     print()
     existing: List[ModelSpec] = []
     missing: List[ModelSpec] = []
     for m in models:
-        (existing if _is_present(m.local_path(root)) else missing).append(m)
+        (existing if _model_present(m, root) else missing).append(m)
 
     if existing:
         print("Already present:")
         for m in existing:
-            path = m.local_path(root)
-            size = _fmt_size(path.stat().st_size)
-            print(f"  - {m.key:22s} {size:>8s}  ({path})")
+            ckpt_path = m.local_path(root)
+            ckpt_size = _fmt_size(ckpt_path.stat().st_size)
+            cfg_path = m.cfg_local_path(root)
+            if cfg_path is None:
+                print(f"  - {m.key:22s} {ckpt_size:>8s}  ({ckpt_path})")
+            else:
+                print(
+                    f"  - {m.key:22s} {ckpt_size:>8s}  (cfg={cfg_path.name}, ckpt={ckpt_path.name})"
+                )
     else:
         print("Already present: (none)")
 
@@ -188,7 +203,13 @@ def _print_inventory(models: Sequence[ModelSpec], root: Path) -> None:
     if missing:
         print("Missing (select by index to download):")
         for idx, m in enumerate(missing, start=1):
-            print(f"  [{idx:2d}] {m.key:22s} -> {m.local_path(root)}")
+            parts = ",".join(_missing_parts(m, root))
+            ckpt_path = m.local_path(root)
+            cfg_path = m.cfg_local_path(root)
+            if cfg_path is None:
+                print(f"  [{idx:2d}] {m.key:22s} (missing {parts}) -> {ckpt_path}")
+            else:
+                print(f"  [{idx:2d}] {m.key:22s} (missing {parts}) -> {cfg_path.name} + {ckpt_path.name}")
     else:
         print("Missing: (none)")
     print()
@@ -216,7 +237,7 @@ def _parse_selection(sel: str, max_index: int) -> List[int]:
 
 
 def _missing_models(models: Sequence[ModelSpec], root: Path) -> List[ModelSpec]:
-    return [m for m in models if not _is_present(m.local_path(root))]
+    return [m for m in models if not _model_present(m, root)]
 
 
 def main() -> int:
@@ -266,14 +287,22 @@ def main() -> int:
     # Download selected
     for idx in chosen:
         m = missing[idx - 1]
-        out_path = m.local_path(root)
-        if _is_present(out_path):
+        if _model_present(m, root):
             print(f"Skip (already present): {m.key}")
             continue
+
         print(f"Downloading [{idx}] {m.key}")
-        print(f"  url:  {m.url}")
-        print(f"  to:   {out_path}")
-        _download(m.url, out_path)
+        cfg_path = m.cfg_local_path(root)
+        if cfg_path is not None and m.cfg_url is not None and not _is_present(cfg_path):
+            print(f"  cfg url: {m.cfg_url}")
+            print(f"  cfg to:  {cfg_path}")
+            _download(m.cfg_url, cfg_path)
+
+        out_path = m.local_path(root)
+        if not _is_present(out_path):
+            print(f"  ckpt url: {m.url}")
+            print(f"  ckpt to:  {out_path}")
+            _download(m.url, out_path)
 
     print()
     print("Done.")
