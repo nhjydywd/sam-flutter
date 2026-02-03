@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -12,6 +13,8 @@ import 'package:flutter_gen/gen_l10n/app_localizations.dart';
 
 import 'app_settings.dart';
 import 'widgets/drag_divider.dart';
+import 'widgets/image_with_prompts_preview.dart';
+import 'widgets/masked_cutout_preview.dart';
 import 'widgets/segmentation_preview.dart';
 
 void main() {
@@ -80,8 +83,14 @@ class _HomePageState extends State<_HomePage> {
   int _selectedImageIndex = -1;
   String? _activeImagePath;
   ui.Image? _activeUiImage;
-  ui.Image? _activeMaskAlpha;
+  ui.Image? _committedMaskAlpha;
+  ui.Image? _previewMaskAlpha;
+  Uint8List? _activeImageBytes;
   final List<PromptPoint> _promptPoints = <PromptPoint>[];
+  PromptPoint? _hoverPoint;
+  DateTime? _lastHoverSentAt;
+  Timer? _hoverThrottleTimer;
+  int _hoverLatestToken = 0;
   String? _sessionId;
   bool _creatingSession = false;
   _EmbeddingState _embeddingState = _EmbeddingState.idle;
@@ -90,6 +99,7 @@ class _HomePageState extends State<_HomePage> {
   int? _serverImageWidth;
   int? _serverImageHeight;
   bool _predicting = false;
+  int _hoverInFlight = 0;
   String? _predictError;
   double? _predictScore;
   int? _predictMaskArea;
@@ -262,7 +272,9 @@ class _HomePageState extends State<_HomePage> {
     _serverCtrl.dispose();
     _modelFocusNode.dispose();
     _activeUiImage?.dispose();
-    _activeMaskAlpha?.dispose();
+    _committedMaskAlpha?.dispose();
+    _previewMaskAlpha?.dispose();
+    _hoverThrottleTimer?.cancel();
     super.dispose();
   }
 
@@ -287,8 +299,10 @@ class _HomePageState extends State<_HomePage> {
       _predictScore = null;
       _predictMaskArea = null;
       _predictElapsedMs = null;
-      _activeMaskAlpha = null;
+      _committedMaskAlpha = null;
+      _previewMaskAlpha = null;
       _promptPoints.clear();
+      _hoverPoint = null;
     });
 
     final base = _serverCtrl.text.trim();
@@ -472,8 +486,14 @@ class _HomePageState extends State<_HomePage> {
           _predictScore = null;
           _predictMaskArea = null;
           _predictElapsedMs = null;
-          _activeMaskAlpha = null;
+          final oldCommitted = _committedMaskAlpha;
+          final oldPreview = _previewMaskAlpha;
+          _committedMaskAlpha = null;
+          _previewMaskAlpha = null;
           _promptPoints.clear();
+          _hoverPoint = null;
+          oldCommitted?.dispose();
+          oldPreview?.dispose();
         });
       } else {
         setState(() {
@@ -488,8 +508,14 @@ class _HomePageState extends State<_HomePage> {
           _predictScore = null;
           _predictMaskArea = null;
           _predictElapsedMs = null;
-          _activeMaskAlpha = null;
+          final oldCommitted = _committedMaskAlpha;
+          final oldPreview = _previewMaskAlpha;
+          _committedMaskAlpha = null;
+          _previewMaskAlpha = null;
           _promptPoints.clear();
+          _hoverPoint = null;
+          oldCommitted?.dispose();
+          oldPreview?.dispose();
         });
       }
       _settings.modelKey = modelKey;
@@ -614,6 +640,24 @@ class _HomePageState extends State<_HomePage> {
     }
   }
 
+  Future<Map<String, dynamic>> _setImageOnSession({
+    required String sessionId,
+    required String imagePath,
+    required Uint8List imageBytes,
+  }) async {
+    final base = _baseUri;
+    if (base == null) throw StateError('not connected');
+    final parsed = await _httpPostMultipartBytes(
+      base.replace(path: '/sessions/$sessionId/image'),
+      bytes: imageBytes,
+      filename: _basename(imagePath),
+    );
+    if (parsed is! Map) {
+      throw StateError('invalid /sessions/{id}/image response');
+    }
+    return Map<String, dynamic>.from(parsed);
+  }
+
   Future<void> _computeEmbeddingForSelection({
     required String imagePath,
     required Uint8List imageBytes,
@@ -638,28 +682,23 @@ class _HomePageState extends State<_HomePage> {
       _predictScore = null;
       _predictMaskArea = null;
       _predictElapsedMs = null;
-      _activeMaskAlpha = null;
-      _promptPoints.clear();
+      final oldPreview = _previewMaskAlpha;
+      _previewMaskAlpha = null;
+      _hoverPoint = null;
+      oldPreview?.dispose();
     });
 
     final base = _baseUri!;
     String sid = await _ensureSession();
 
-    Future<Map<String, dynamic>> doUpload(String sid) async {
-      final parsed = await _httpPostMultipartBytes(
-        base.replace(path: '/sessions/$sid/image'),
-        bytes: imageBytes,
-        filename: _basename(imagePath),
-      );
-      if (parsed is! Map)
-        throw StateError('invalid /sessions/{id}/image response');
-      return Map<String, dynamic>.from(parsed);
-    }
-
     try {
       Map<String, dynamic> imgResp;
       try {
-        imgResp = await doUpload(sid);
+        imgResp = await _setImageOnSession(
+          sessionId: sid,
+          imagePath: imagePath,
+          imageBytes: imageBytes,
+        );
       } on HttpException catch (e) {
         // Model switches clear sessions; retry once with a fresh session.
         if (e.message.contains('HTTP 404')) {
@@ -667,7 +706,11 @@ class _HomePageState extends State<_HomePage> {
             _sessionId = null;
           });
           sid = await _ensureSession();
-          imgResp = await doUpload(sid);
+          imgResp = await _setImageOnSession(
+            sessionId: sid,
+            imagePath: imagePath,
+            imageBytes: imageBytes,
+          );
         } else {
           rethrow;
         }
@@ -703,6 +746,120 @@ class _HomePageState extends State<_HomePage> {
     }
   }
 
+  void _scheduleHoverPredict() {
+    if (_embeddingState != _EmbeddingState.ready) return;
+    if (_connState != _ConnState.connected || _baseUri == null) return;
+    if (_activeImagePath == null) return;
+    if (_hoverPoint == null) return;
+
+    final now = DateTime.now();
+    final last = _lastHoverSentAt;
+    final minGap = const Duration(milliseconds: 50);
+    if (last == null || now.difference(last) >= minGap) {
+      _sendHoverPredict();
+      return;
+    }
+
+    final dueAt = last.add(minGap);
+    final wait = dueAt.difference(now);
+    _hoverThrottleTimer?.cancel();
+    _hoverThrottleTimer = Timer(wait, () {
+      if (!mounted) return;
+      _sendHoverPredict();
+    });
+  }
+
+  Future<void> _sendHoverPredict() async {
+    if (_embeddingState != _EmbeddingState.ready) return;
+    final base = _baseUri;
+    if (base == null || _connState != _ConnState.connected) return;
+    final path = _activeImagePath;
+    final imgBytes = _activeImageBytes;
+    final hover = _hoverPoint;
+    if (path == null || imgBytes == null || hover == null) return;
+
+    final embedToken = _embedRequestToken;
+    final token = ++_hoverLatestToken;
+    _lastHoverSentAt = DateTime.now();
+    _hoverInFlight += 1;
+    try {
+      // Qt: preview adds a temporary positive point at the hover location.
+      final allPts = <PromptPoint>[..._promptPoints, hover];
+      final pts = allPts.map((p) => <double>[p.x, p.y]).toList();
+      final lbs = allPts.map((p) => p.label).toList();
+
+      String sid = _sessionId ?? '';
+      if (sid.isEmpty) {
+        sid = await _ensureSession();
+      }
+
+      Object? parsed;
+      try {
+        parsed = await _httpPostJson(
+          base.replace(path: '/sessions/$sid/predict'),
+          <String, Object?>{
+            'points': pts,
+            'labels': lbs,
+            'multimask': false,
+            'return_format': 'png_base64',
+          },
+        );
+      } on HttpException catch (e) {
+        if (e.message.contains('HTTP 404')) {
+          // Recreate session and re-upload current image.
+          setState(() {
+            _sessionId = null;
+          });
+          final newSid = await _ensureSession();
+          await _setImageOnSession(
+            sessionId: newSid,
+            imagePath: path,
+            imageBytes: imgBytes,
+          );
+          parsed = await _httpPostJson(
+            base.replace(path: '/sessions/$newSid/predict'),
+            <String, Object?>{
+              'points': pts,
+              'labels': lbs,
+              'multimask': false,
+              'return_format': 'png_base64',
+            },
+          );
+        } else {
+          rethrow;
+        }
+      }
+
+      if (parsed is! Map) throw StateError('invalid /predict response');
+      final m = Map<String, dynamic>.from(parsed);
+      final b64 = m['mask_png_base64']?.toString() ?? '';
+      if (b64.isEmpty) throw StateError('missing mask_png_base64');
+      final bytes = base64Decode(b64);
+      final maskImg = await _decodeUiImage(Uint8List.fromList(bytes));
+
+      // Be tolerant: even if the mouse moved since this request was sent, still
+      // show the latest available preview (Qt-style). We'll replace it again on
+      // the next hover prediction.
+      if (!mounted ||
+          embedToken != _embedRequestToken ||
+          token != _hoverLatestToken ||
+          path != _activeImagePath) {
+        maskImg.dispose();
+        return;
+      }
+
+      setState(() {
+        final old = _previewMaskAlpha;
+        _previewMaskAlpha = maskImg;
+        old?.dispose();
+      });
+    } catch (_) {
+      // Silent failure: hover preview shouldn't spam UI errors.
+    } finally {
+      _hoverInFlight = (_hoverInFlight - 1).clamp(0, 1 << 30);
+    }
+  }
+
   Future<void> _runPredict() async {
     if (_predicting) return;
     if (_embeddingState != _EmbeddingState.ready) return;
@@ -713,6 +870,8 @@ class _HomePageState extends State<_HomePage> {
     if (_promptPoints.isEmpty) return;
     final token = _embedRequestToken;
     final path = _activeImagePath;
+    final imgBytes = _activeImageBytes;
+    if (path == null || imgBytes == null) return;
 
     setState(() {
       _predicting = true;
@@ -721,15 +880,42 @@ class _HomePageState extends State<_HomePage> {
     try {
       final pts = _promptPoints.map((p) => <double>[p.x, p.y]).toList();
       final lbs = _promptPoints.map((p) => p.label).toList();
-      final parsed = await _httpPostJson(
-        base.replace(path: '/sessions/$sid/predict'),
-        <String, Object?>{
-          'points': pts,
-          'labels': lbs,
-          'multimask': false,
-          'return_format': 'png_base64',
-        },
-      );
+      Object? parsed;
+      try {
+        parsed = await _httpPostJson(
+          base.replace(path: '/sessions/$sid/predict'),
+          <String, Object?>{
+            'points': pts,
+            'labels': lbs,
+            'multimask': false,
+            'return_format': 'png_base64',
+          },
+        );
+      } on HttpException catch (e) {
+        // If the server restarted, this session id may be gone.
+        if (e.message.contains('HTTP 404')) {
+          setState(() {
+            _sessionId = null;
+          });
+          final newSid = await _ensureSession();
+          await _setImageOnSession(
+            sessionId: newSid,
+            imagePath: path,
+            imageBytes: imgBytes,
+          );
+          parsed = await _httpPostJson(
+            base.replace(path: '/sessions/$newSid/predict'),
+            <String, Object?>{
+              'points': pts,
+              'labels': lbs,
+              'multimask': false,
+              'return_format': 'png_base64',
+            },
+          );
+        } else {
+          rethrow;
+        }
+      }
       if (parsed is! Map) throw StateError('invalid /predict response');
       final m = Map<String, dynamic>.from(parsed);
       final b64 = m['mask_png_base64']?.toString() ?? '';
@@ -743,8 +929,11 @@ class _HomePageState extends State<_HomePage> {
       }
 
       setState(() {
-        final old = _activeMaskAlpha;
-        _activeMaskAlpha = maskImg;
+        final oldCommitted = _committedMaskAlpha;
+        final oldPreview = _previewMaskAlpha;
+        _committedMaskAlpha = maskImg;
+        _previewMaskAlpha = null;
+        _hoverPoint = null;
         _predictScore =
             (m['score'] is num) ? (m['score'] as num).toDouble() : null;
         _predictMaskArea =
@@ -752,12 +941,25 @@ class _HomePageState extends State<_HomePage> {
         _predictElapsedMs = (m['elapsed_ms'] is num)
             ? (m['elapsed_ms'] as num).toDouble()
             : null;
-        old?.dispose();
+        oldCommitted?.dispose();
+        oldPreview?.dispose();
       });
     } catch (e) {
       setState(() {
         _predictError = e.toString();
       });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              AppLocalizations.of(context)!.statusErrorPrefix(e.toString()),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
     } finally {
       setState(() {
         _predicting = false;
@@ -770,13 +972,17 @@ class _HomePageState extends State<_HomePage> {
     final path = _imagePaths[index];
     final token = ++_embedRequestToken;
     final oldImg = _activeUiImage;
-    final oldMask = _activeMaskAlpha;
+    final oldCommitted = _committedMaskAlpha;
+    final oldPreview = _previewMaskAlpha;
     setState(() {
       _selectedImageIndex = index;
       _activeImagePath = path;
       _activeUiImage = null;
-      _activeMaskAlpha = null;
+      _committedMaskAlpha = null;
+      _previewMaskAlpha = null;
+      _activeImageBytes = null;
       _promptPoints.clear();
+      _hoverPoint = null;
       _embeddingState = _EmbeddingState.idle;
       _embeddingError = null;
       _embeddingElapsedMs = null;
@@ -788,7 +994,8 @@ class _HomePageState extends State<_HomePage> {
       _predictElapsedMs = null;
     });
     oldImg?.dispose();
-    oldMask?.dispose();
+    oldCommitted?.dispose();
+    oldPreview?.dispose();
 
     Uint8List bytes;
     try {
@@ -807,6 +1014,7 @@ class _HomePageState extends State<_HomePage> {
       if (token != _embedRequestToken) return;
       setState(() {
         _activeUiImage = img;
+        _activeImageBytes = bytes;
       });
     } catch (e) {
       if (token != _embedRequestToken) return;
@@ -1060,8 +1268,12 @@ class _HomePageState extends State<_HomePage> {
                                               final img = activeOk
                                                   ? _activeUiImage
                                                   : null;
-                                              final mask = activeOk
-                                                  ? _activeMaskAlpha
+                                              final mixedMask = activeOk
+                                                  ? (_previewMaskAlpha ??
+                                                      _committedMaskAlpha)
+                                                  : null;
+                                              final committedMask = activeOk
+                                                  ? _committedMaskAlpha
                                                   : null;
                                               if (img == null) {
                                                 return const Center(
@@ -1069,46 +1281,186 @@ class _HomePageState extends State<_HomePage> {
                                                       CircularProgressIndicator(),
                                                 );
                                               }
-                                              return SegmentationPreview(
-                                                image: img,
-                                                maskAlpha: mask,
-                                                points: List<
-                                                        PromptPoint>.unmodifiable(
-                                                    _promptPoints),
-                                                onAddPoint: (pt) {
+                                              void onAddPoint(PromptPoint pt) {
+                                                setState(() {
+                                                  _promptPoints.add(pt);
+                                                  _hoverPoint = null;
+                                                  final old = _previewMaskAlpha;
+                                                  _previewMaskAlpha = null;
+                                                  old?.dispose();
+                                                });
+                                                if (_embeddingState ==
+                                                    _EmbeddingState.ready) {
+                                                  _runPredict();
+                                                }
+                                              }
+
+                                              void onHoverImagePx(
+                                                  Offset imagePx) {
+                                                if (_embeddingState !=
+                                                    _EmbeddingState.ready) {
+                                                  return;
+                                                }
+                                                final prev = _hoverPoint;
+                                                final next = PromptPoint(
+                                                  x: imagePx.dx,
+                                                  y: imagePx.dy,
+                                                  label: 1,
+                                                );
+                                                final shouldUpdate =
+                                                    prev == null ||
+                                                        (prev.x - next.x)
+                                                                .abs() >
+                                                            1.0 ||
+                                                        (prev.y - next.y)
+                                                                .abs() >
+                                                            1.0;
+                                                if (shouldUpdate) {
                                                   setState(() {
-                                                    _promptPoints.add(pt);
+                                                    _hoverPoint = next;
                                                   });
-                                                  if (_embeddingState ==
-                                                      _EmbeddingState.ready) {
-                                                    _runPredict();
-                                                  }
-                                                },
+                                                } else {
+                                                  _hoverPoint = next;
+                                                }
+                                                _scheduleHoverPredict();
+                                              }
+
+                                              void onExitHover() {
+                                                _hoverPoint = null;
+                                                _hoverThrottleTimer?.cancel();
+                                                _hoverLatestToken += 1;
+                                                setState(() {
+                                                  final old = _previewMaskAlpha;
+                                                  _previewMaskAlpha = null;
+                                                  old?.dispose();
+                                                });
+                                              }
+
+                                              final points = List<
+                                                      PromptPoint>.unmodifiable(
+                                                  _promptPoints);
+                                              final hoverPoint = _hoverPoint;
+
+                                              const gap = 10.0;
+                                              return Column(
+                                                children: <Widget>[
+                                                  Expanded(
+                                                    child: Row(
+                                                      children: <Widget>[
+                                                        Expanded(
+                                                          child: _PreviewPane(
+                                                            child:
+                                                                SegmentationPreview(
+                                                              image: img,
+                                                              maskAlpha:
+                                                                  mixedMask,
+                                                              points: points,
+                                                              hoverPoint:
+                                                                  hoverPoint,
+                                                              onAddPoint:
+                                                                  onAddPoint,
+                                                              onHoverImagePx:
+                                                                  onHoverImagePx,
+                                                              onExit:
+                                                                  onExitHover,
+                                                            ),
+                                                          ),
+                                                        ),
+                                                        const SizedBox(
+                                                            width: gap),
+                                                        Expanded(
+                                                          child: _PreviewPane(
+                                                            child:
+                                                                ImageWithPromptsPreview(
+                                                              image: img,
+                                                              points: points,
+                                                              hoverPoint:
+                                                                  hoverPoint,
+                                                              onAddPoint:
+                                                                  onAddPoint,
+                                                              onHoverImagePx:
+                                                                  onHoverImagePx,
+                                                              onExit:
+                                                                  onExitHover,
+                                                            ),
+                                                          ),
+                                                        ),
+                                                      ],
+                                                    ),
+                                                  ),
+                                                  const SizedBox(height: gap),
+                                                  Expanded(
+                                                    child: Row(
+                                                      children: <Widget>[
+                                                        Expanded(
+                                                          child: _PreviewPane(
+                                                            child:
+                                                                MaskedCutoutPreview(
+                                                              image: img,
+                                                              maskAlpha:
+                                                                  committedMask,
+                                                              onAddPoint:
+                                                                  onAddPoint,
+                                                              onHoverImagePx:
+                                                                  onHoverImagePx,
+                                                              onExit:
+                                                                  onExitHover,
+                                                            ),
+                                                          ),
+                                                        ),
+                                                        const SizedBox(
+                                                            width: gap),
+                                                        Expanded(
+                                                          child: _PreviewPane(
+                                                            child: Center(
+                                                              child:
+                                                                  _ImageStatusBar(
+                                                                embeddingState:
+                                                                    _embeddingState,
+                                                                embeddingError:
+                                                                    _embeddingError,
+                                                                embeddingElapsedMs:
+                                                                    _embeddingElapsedMs,
+                                                                onClearPrompts:
+                                                                    () {
+                                                                  setState(() {
+                                                                    _promptPoints
+                                                                        .clear();
+                                                                    _predictError =
+                                                                        null;
+                                                                    _predictScore =
+                                                                        null;
+                                                                    _predictMaskArea =
+                                                                        null;
+                                                                    _predictElapsedMs =
+                                                                        null;
+                                                                    final oldCommitted =
+                                                                        _committedMaskAlpha;
+                                                                    final oldPreview =
+                                                                        _previewMaskAlpha;
+                                                                    _committedMaskAlpha =
+                                                                        null;
+                                                                    _previewMaskAlpha =
+                                                                        null;
+                                                                    _hoverPoint =
+                                                                        null;
+                                                                    oldCommitted
+                                                                        ?.dispose();
+                                                                    oldPreview
+                                                                        ?.dispose();
+                                                                  });
+                                                                },
+                                                              ),
+                                                            ),
+                                                          ),
+                                                        ),
+                                                      ],
+                                                    ),
+                                                  ),
+                                                ],
                                               );
                                             },
                                           ),
-                                        ),
-                                      ),
-                                      Padding(
-                                        padding: const EdgeInsets.fromLTRB(
-                                            16, 0, 16, 12),
-                                        child: _ImageStatusBar(
-                                          embeddingState: _embeddingState,
-                                          embeddingError: _embeddingError,
-                                          embeddingElapsedMs:
-                                              _embeddingElapsedMs,
-                                          onClearPrompts: () {
-                                            setState(() {
-                                              _promptPoints.clear();
-                                              _predictError = null;
-                                              _predictScore = null;
-                                              _predictMaskArea = null;
-                                              _predictElapsedMs = null;
-                                              final old = _activeMaskAlpha;
-                                              _activeMaskAlpha = null;
-                                              old?.dispose();
-                                            });
-                                          },
                                         ),
                                       ),
                                     ],
@@ -1305,6 +1657,37 @@ class _ImageStatusBar extends StatelessWidget {
         FilledButton.tonal(
           onPressed: onClearPrompts,
           child: Text(l10n.clearPrompts),
+        ),
+      ],
+    );
+  }
+}
+
+class _PreviewPane extends StatelessWidget {
+  const _PreviewPane({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final border = BoxDecoration(
+      border: Border.all(color: Colors.black, width: 1.5),
+      borderRadius: BorderRadius.circular(8),
+    );
+
+    // Use a foreground decoration so the border stays visible even when the
+    // child paints an opaque background (e.g. the Segment view).
+    return Stack(
+      fit: StackFit.expand,
+      children: <Widget>[
+        ClipRRect(
+          borderRadius: BorderRadius.circular(8),
+          child: child,
+        ),
+        IgnorePointer(
+          child: DecoratedBox(
+            decoration: border,
+          ),
         ),
       ],
     );
