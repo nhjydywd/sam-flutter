@@ -10,6 +10,14 @@
   "statusConnected": "Connected",
   "statusDisconnected": "Disconnected",
   "statusErrorPrefix": "Error: {error}",
+  "modelSelectLabel": "Model",
+  "modelSelectLoading": "Loading models…",
+  "modelSelectNone": "No downloaded models",
+  "statusDetailsTitle": "Status details",
+  "statusModelKeyLabel": "Model",
+  "statusDeviceLabel": "Device",
+  "statusSessionsLabel": "Sessions",
+  "statusServerOkLabel": "Server ok",
   "@statusErrorPrefix": {
     "placeholders": {
       "error": {

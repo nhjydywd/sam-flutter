@@ -12,6 +12,11 @@ class _AppSettingsData {
   @JsonKey(defaultValue: 'http://127.0.0.1:8000')
   String serverUrl = 'http://127.0.0.1:8000';
 
+  // Preferred SAM2 model key, e.g. "sam2.1_hiera_tiny".
+  // Empty means "use server default/current".
+  @JsonKey(defaultValue: '')
+  String modelKey = '';
+
   @JsonKey(defaultValue: false)
   bool rightPanelCollapsed = false;
 
@@ -35,6 +40,15 @@ class AppSettings extends ChangeNotifier {
   set serverUrl(String value) {
     if (_data.serverUrl != value) {
       _data.serverUrl = value;
+      notifyListeners();
+      _scheduleSave();
+    }
+  }
+
+  String get modelKey => _data.modelKey;
+  set modelKey(String value) {
+    if (_data.modelKey != value) {
+      _data.modelKey = value;
       notifyListeners();
       _scheduleSave();
     }

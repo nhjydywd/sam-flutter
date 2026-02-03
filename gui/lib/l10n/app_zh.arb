@@ -10,6 +10,14 @@
   "statusConnected": "已连接",
   "statusDisconnected": "未连接",
   "statusErrorPrefix": "错误：{error}",
+  "modelSelectLabel": "模型",
+  "modelSelectLoading": "正在加载模型…",
+  "modelSelectNone": "没有已下载的模型",
+  "statusDetailsTitle": "状态详情",
+  "statusModelKeyLabel": "模型",
+  "statusDeviceLabel": "设备",
+  "statusSessionsLabel": "会话数",
+  "statusServerOkLabel": "服务正常",
   "@statusErrorPrefix": {
     "placeholders": {
       "error": {
