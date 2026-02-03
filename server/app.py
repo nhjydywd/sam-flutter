@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import socket
 from typing import Any, Dict, Optional
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
@@ -46,6 +47,17 @@ def _startup() -> None:
         except Exception as e:
             # Re-raise as RuntimeError so Uvicorn shows it clearly.
             raise RuntimeError(f"Failed to load SAM2 model '{DEFAULT_MODEL_KEY}': {e}") from e
+
+    # Print LAN IP hint for GUI connection from other devices
+    port = os.environ.get("SAM2_SERVER_PORT", "8000")
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        lan_ip = s.getsockname()[0]
+        s.close()
+        print(f"\n  To connect from other devices on your network, use: http://{lan_ip}:{port}\n")
+    except Exception:
+        pass  # Network unavailable, skip hint
 
 
 @app.get("/health")

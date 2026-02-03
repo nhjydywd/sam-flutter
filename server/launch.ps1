@@ -76,11 +76,14 @@ try:
     import sam2
     import fastapi
     import uvicorn
+    # Also check CUDA is available
+    if not torch.cuda.is_available():
+        sys.exit(1)
     sys.exit(0)
 except ImportError:
     sys.exit(1)
 "@
-    $result = & $venvPython -c $testScript 2>$null
+    & $venvPython -c $testScript 2>$null
     return $LASTEXITCODE -eq 0
 }
 
@@ -88,15 +91,21 @@ function Ensure-Deps {
     $venvPython = Get-VenvPython
 
     # Upgrade pip tooling
+    Write-Host "Upgrading pip..."
     & $venvPython -m pip install -U pip setuptools wheel | Out-Null
 
-    # Fast check: if imports work, skip pip install
+    # Fast check: if imports work and CUDA available, skip pip install
     if (Test-DepsInstalled) {
+        Write-Host "Dependencies already installed with CUDA support."
         return
     }
 
-    Write-Host "Installing Python dependencies from $REQ_FILE ..."
-    # For CPU installs, avoid CUDA build attempts during SAM2 install
+    # Install PyTorch with CUDA 11.8 first
+    Write-Host "Installing PyTorch with CUDA 11.8 support..."
+    & $venvPython -m pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118
+
+    # Install other dependencies (excluding torch/torchvision which are already installed)
+    Write-Host "Installing other Python dependencies from $REQ_FILE ..."
     $env:SAM2_BUILD_CUDA = "0"
     $env:SAM2_BUILD_ALLOW_ERRORS = "1"
     & $venvPython -m pip install -r $REQ_FILE
@@ -105,9 +114,16 @@ function Ensure-Deps {
 function Ensure-Sam2TinyModel {
     $outDir = Join-Path $ROOT "models\sam2"
     $ckpt = Join-Path $outDir "sam2.1_hiera_tiny.pt"
+    $expectedSize = 38800000  # ~38MB
 
-    if ((Test-Path $ckpt) -and ((Get-Item $ckpt).Length -gt 0)) {
+    # Check if file exists and is roughly the right size
+    if ((Test-Path $ckpt) -and ((Get-Item $ckpt).Length -gt $expectedSize)) {
         return
+    }
+
+    # Remove incomplete download if exists
+    if (Test-Path $ckpt) {
+        Remove-Item $ckpt -Force
     }
 
     if (-not (Test-Path $outDir)) {
@@ -118,12 +134,21 @@ function Ensure-Sam2TinyModel {
     Write-Host "Downloading SAM2.1 tiny model (smallest; for quick verification) ..."
     Write-Host "Tip: later you can run 'python server\manage_model.py' to download larger models."
 
-    # Use Invoke-WebRequest with progress
-    $ProgressPreference = 'Continue'
-    Invoke-WebRequest -Uri $url -OutFile $ckpt -UseBasicParsing
+    # Use .NET WebClient for reliable large file download
+    $webClient = New-Object System.Net.WebClient
+    try {
+        $webClient.DownloadFile($url, $ckpt)
+    } finally {
+        $webClient.Dispose()
+    }
 
     $fileInfo = Get-Item $ckpt
     Write-Host "Downloaded: $ckpt ($([math]::Round($fileInfo.Length / 1MB, 2)) MB)"
+
+    if ($fileInfo.Length -lt $expectedSize) {
+        Write-Error "Download incomplete. Expected ~38MB, got $([math]::Round($fileInfo.Length / 1MB, 2)) MB"
+        exit 1
+    }
 }
 
 # Main execution
