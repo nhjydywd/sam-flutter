@@ -498,141 +498,149 @@ class _HomePageState extends State<_HomePage> {
     final l10n = AppLocalizations.of(context)!;
     final panelWidth = _rightCollapsed ? _rightCollapsedWidth : _rightExpandedWidth;
 
-    return Scaffold(
-      appBar: AppBar(title: Text(l10n.appTitle)),
-      body: LayoutBuilder(
-        builder: (context, constraints) {
-          final dividerX = constraints.maxWidth - panelWidth;
-          const btnSize = 28.0;
-          final btnLeft = dividerX - (btnSize / 2);
-          final btnTop = (constraints.maxHeight / 2) - (btnSize / 2);
+    return DropTarget(
+      // Important: this needs to wrap the whole page (like subocr) because the
+      // macOS plugin reports positions relative to the root Flutter view.
+      onDragEntered: (_) => setState(() => _dragging = true),
+      onDragExited: (_) => setState(() => _dragging = false),
+      onDragDone: (detail) async {
+        setState(() => _dragging = false);
+        final paths = detail.files.map((e) => e.path).where((p) => p.isNotEmpty).toList();
+        if (paths.isEmpty) return;
+        await _handleInputPaths(paths);
+      },
+      child: Stack(
+        fit: StackFit.expand,
+        children: <Widget>[
+          Scaffold(
+            appBar: AppBar(title: Text(l10n.appTitle)),
+            body: LayoutBuilder(
+              builder: (context, constraints) {
+                final dividerX = constraints.maxWidth - panelWidth;
+                const btnSize = 28.0;
+                final btnLeft = dividerX - (btnSize / 2);
+                final btnTop = (constraints.maxHeight / 2) - (btnSize / 2);
 
-          return DropTarget(
-            onDragEntered: (_) => setState(() => _dragging = true),
-            onDragExited: (_) => setState(() => _dragging = false),
-            onDragDone: (detail) async {
-              setState(() => _dragging = false);
-              final paths = detail.files.map((e) => e.path).where((p) => p.isNotEmpty).toList();
-              if (paths.isEmpty) return;
-              await _handleInputPaths(paths);
-            },
-            child: Stack(
-              children: <Widget>[
-                Row(
+                return Stack(
+                  fit: StackFit.expand,
                   children: <Widget>[
-                    Expanded(
-                      child: Center(
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: <Widget>[
-                            ElevatedButton.icon(
-                              onPressed: _chooseFile,
-                              icon: const Icon(Icons.insert_drive_file_outlined),
-                              label: Text(l10n.chooseFile),
-                            ),
-                            const SizedBox(height: 12),
-                            ElevatedButton.icon(
-                              onPressed: _chooseFolder,
-                              icon: const Icon(Icons.folder_open_outlined),
-                              label: Text(l10n.chooseFolder),
-                            ),
-                            if (_pickedFilePath != null) ...<Widget>[
-                              const SizedBox(height: 12),
-                              SizedBox(
-                                width: 520,
-                                child: Text(
-                                  l10n.selectedFileLabel(_pickedFilePath!),
-                                  maxLines: 2,
-                                  overflow: TextOverflow.ellipsis,
-                                  textAlign: TextAlign.center,
+                    Row(
+                      children: <Widget>[
+                        Expanded(
+                          child: Center(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: <Widget>[
+                                ElevatedButton.icon(
+                                  onPressed: _chooseFile,
+                                  icon: const Icon(Icons.insert_drive_file_outlined),
+                                  label: Text(l10n.chooseFile),
                                 ),
-                              ),
-                            ],
-                            if (_pickedFolderPath != null) ...<Widget>[
-                              const SizedBox(height: 12),
-                              SizedBox(
-                                width: 520,
-                                child: Text(
-                                  l10n.selectedFolderLabel(
-                                    _pickedFolderPath!,
-                                    _pickedFolderImageCount ?? 0,
+                                const SizedBox(height: 12),
+                                ElevatedButton.icon(
+                                  onPressed: _chooseFolder,
+                                  icon: const Icon(Icons.folder_open_outlined),
+                                  label: Text(l10n.chooseFolder),
+                                ),
+                                if (_pickedFilePath != null) ...<Widget>[
+                                  const SizedBox(height: 12),
+                                  SizedBox(
+                                    width: 520,
+                                    child: Text(
+                                      l10n.selectedFileLabel(_pickedFilePath!),
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                      textAlign: TextAlign.center,
+                                    ),
                                   ),
-                                  maxLines: 3,
-                                  overflow: TextOverflow.ellipsis,
-                                  textAlign: TextAlign.center,
-                                ),
-                              ),
-                            ],
-                            if (_pickedImagesCount != null && _pickedFilePath == null && _pickedFolderPath == null) ...<Widget>[
-                              const SizedBox(height: 12),
-                              SizedBox(
-                                width: 520,
-                                child: Text(
-                                  l10n.selectedImagesCountLabel(_pickedImagesCount!),
-                                  maxLines: 2,
-                                  overflow: TextOverflow.ellipsis,
-                                  textAlign: TextAlign.center,
-                                ),
-                              ),
-                            ],
-                            if (_pickError != null && _pickError!.isNotEmpty) ...<Widget>[
-                              const SizedBox(height: 12),
-                              SizedBox(
-                                width: 520,
-                                child: Text(
-                                  l10n.statusErrorPrefix(_pickError!),
-                                  maxLines: 3,
-                                  overflow: TextOverflow.ellipsis,
-                                  textAlign: TextAlign.center,
-                                  style: TextStyle(color: Theme.of(context).colorScheme.error),
-                                ),
-                              ),
-                            ],
-                          ],
+                                ],
+                                if (_pickedFolderPath != null) ...<Widget>[
+                                  const SizedBox(height: 12),
+                                  SizedBox(
+                                    width: 520,
+                                    child: Text(
+                                      l10n.selectedFolderLabel(
+                                        _pickedFolderPath!,
+                                        _pickedFolderImageCount ?? 0,
+                                      ),
+                                      maxLines: 3,
+                                      overflow: TextOverflow.ellipsis,
+                                      textAlign: TextAlign.center,
+                                    ),
+                                  ),
+                                ],
+                                if (_pickedImagesCount != null && _pickedFilePath == null && _pickedFolderPath == null) ...<Widget>[
+                                  const SizedBox(height: 12),
+                                  SizedBox(
+                                    width: 520,
+                                    child: Text(
+                                      l10n.selectedImagesCountLabel(_pickedImagesCount!),
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                      textAlign: TextAlign.center,
+                                    ),
+                                  ),
+                                ],
+                                if (_pickError != null && _pickError!.isNotEmpty) ...<Widget>[
+                                  const SizedBox(height: 12),
+                                  SizedBox(
+                                    width: 520,
+                                    child: Text(
+                                      l10n.statusErrorPrefix(_pickError!),
+                                      maxLines: 3,
+                                      overflow: TextOverflow.ellipsis,
+                                      textAlign: TextAlign.center,
+                                      style: TextStyle(color: Theme.of(context).colorScheme.error),
+                                    ),
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ),
                         ),
-                      ),
+                        _ServerStatusPanel(
+                          width: panelWidth,
+                          collapsed: _rightCollapsed,
+                          serverController: _serverCtrl,
+                          modelFocusNode: _modelFocusNode,
+                          connState: _connState,
+                          lastError: _lastError,
+                          health: _health,
+                          models: _models,
+                          modelsLoading: _modelsLoading,
+                          selectedModelKey: _selectedModelKey,
+                          settingModel: _settingModel,
+                          modelError: _modelError,
+                          onConnect: _connect,
+                          onSelectModel: (key) => _selectModel(key, userInitiated: true),
+                        ),
+                      ],
                     ),
-                    _ServerStatusPanel(
-                      width: panelWidth,
-                      collapsed: _rightCollapsed,
-                      serverController: _serverCtrl,
-                      modelFocusNode: _modelFocusNode,
-                      connState: _connState,
-                      lastError: _lastError,
-                      health: _health,
-                      models: _models,
-                      modelsLoading: _modelsLoading,
-                      selectedModelKey: _selectedModelKey,
-                      settingModel: _settingModel,
-                      modelError: _modelError,
-                      onConnect: _connect,
-                      onSelectModel: (key) => _selectModel(key, userInitiated: true),
+                    Positioned(
+                      left: btnLeft.clamp(0.0, constraints.maxWidth - btnSize),
+                      top: btnTop.clamp(0.0, constraints.maxHeight - btnSize),
+                      child: _DividerToggleButton(
+                        collapsed: _rightCollapsed,
+                        onPressed: () {
+                          setState(() => _rightCollapsed = !_rightCollapsed);
+                          _settings.rightPanelCollapsed = _rightCollapsed;
+                        },
+                      ),
                     ),
                   ],
-                ),
-                if (_dragging)
-                  Positioned.fill(
-                    child: IgnorePointer(
-                      child: Container(
-                        color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.10),
-                      ),
-                    ),
-                  ),
-                Positioned(
-                  left: btnLeft.clamp(0.0, constraints.maxWidth - btnSize),
-                  top: btnTop.clamp(0.0, constraints.maxHeight - btnSize),
-                  child: _DividerToggleButton(
-                    collapsed: _rightCollapsed,
-                    onPressed: () {
-                      setState(() => _rightCollapsed = !_rightCollapsed);
-                      _settings.rightPanelCollapsed = _rightCollapsed;
-                    },
-                  ),
-                ),
-              ],
+                );
+              },
             ),
-          );
-        },
+          ),
+          if (_dragging)
+            Positioned.fill(
+              child: IgnorePointer(
+                child: Container(
+                  color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.16),
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }
