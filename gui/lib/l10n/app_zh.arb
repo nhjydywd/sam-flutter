@@ -36,6 +36,13 @@
   "maskSummary": "Mask：面积 {area}  得分 {score}  （{ms} ms）",
   "maskNotComputed": "Mask：未计算",
   "clearPrompts": "清空提示",
+  "cancel": "取消",
+  "confirmClearPromptsTitle": "清空提示",
+  "confirmClearPromptsMessage": "这将清除当前图片的所有提示点，是否继续？",
+  "exportAll": "导出",
+  "exporting": "正在导出…",
+  "exportChooseFolderTitle": "选择导出文件夹",
+  "exportDoneMessage": "已导出到 {dir}（已导出：{exported}，跳过：{skipped}）",
   "@statusErrorPrefix": {
     "placeholders": {
       "error": {
@@ -100,6 +107,19 @@
   "@selectedImagesCountLabel": {
     "placeholders": {
       "count": {
+        "type": "int"
+      }
+    }
+  },
+  "@exportDoneMessage": {
+    "placeholders": {
+      "dir": {
+        "type": "String"
+      },
+      "exported": {
+        "type": "int"
+      },
+      "skipped": {
         "type": "int"
       }
     }

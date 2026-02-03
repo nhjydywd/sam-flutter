@@ -36,6 +36,13 @@
   "maskSummary": "Mask: area {area}  score {score}  ({ms} ms)",
   "maskNotComputed": "Mask: not computed",
   "clearPrompts": "Clear prompts",
+  "cancel": "Cancel",
+  "confirmClearPromptsTitle": "Clear prompts",
+  "confirmClearPromptsMessage": "This will remove all prompt points for the current image. Continue?",
+  "exportAll": "Export",
+  "exporting": "Exporting…",
+  "exportChooseFolderTitle": "Choose export folder",
+  "exportDoneMessage": "Exported to {dir}  (exported: {exported}, skipped: {skipped})",
   "@statusErrorPrefix": {
     "placeholders": {
       "error": {
@@ -100,6 +107,19 @@
   "@selectedImagesCountLabel": {
     "placeholders": {
       "count": {
+        "type": "int"
+      }
+    }
+  },
+  "@exportDoneMessage": {
+    "placeholders": {
+      "dir": {
+        "type": "String"
+      },
+      "exported": {
+        "type": "int"
+      },
+      "skipped": {
         "type": "int"
       }
     }
