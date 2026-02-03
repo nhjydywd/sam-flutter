@@ -4,6 +4,8 @@
   "helloWorld": "Hello, world",
   "chooseFile": "Choose file",
   "chooseFolder": "Choose folder",
+  "selectedImagesCountLabel": "Selected images: {count}",
+  "noImagesFound": "No image files found",
   "selectedFileLabel": "Selected file: {path}",
   "selectedFolderLabel": "Selected folder: {path}  (images: {count})",
   "serverPanelTitle": "Server",
@@ -41,6 +43,13 @@
       "path": {
         "type": "String"
       },
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "@selectedImagesCountLabel": {
+    "placeholders": {
       "count": {
         "type": "int"
       }

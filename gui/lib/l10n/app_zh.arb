@@ -4,6 +4,8 @@
   "helloWorld": "你好，世界",
   "chooseFile": "选择文件",
   "chooseFolder": "选择文件夹",
+  "selectedImagesCountLabel": "已选择图片：{count}",
+  "noImagesFound": "未找到图片文件",
   "selectedFileLabel": "已选择文件：{path}",
   "selectedFolderLabel": "已选择文件夹：{path}（图片：{count}）",
   "serverPanelTitle": "服务器",
@@ -41,6 +43,13 @@
       "path": {
         "type": "String"
       },
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "@selectedImagesCountLabel": {
+    "placeholders": {
       "count": {
         "type": "int"
       }
