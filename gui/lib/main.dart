@@ -110,7 +110,8 @@ class _HomePageState extends State<_HomePage> {
         if (type == FileSystemEntityType.directory) {
           final dir = Directory(p);
           if (!dir.existsSync()) continue;
-          await for (final ent in dir.list(recursive: true, followLinks: false)) {
+          await for (final ent
+              in dir.list(recursive: true, followLinks: false)) {
             if (ent is! File) continue;
             final fp = ent.path;
             if (!_isImagePath(fp)) continue;
@@ -266,7 +267,8 @@ class _HomePageState extends State<_HomePage> {
 
     try {
       final parsed = await _httpGetJson(baseUri.replace(path: '/health'));
-      final ok = (parsed is Map<String, dynamic>) ? (parsed['ok'] == true) : false;
+      final ok =
+          (parsed is Map<String, dynamic>) ? (parsed['ok'] == true) : false;
       if (!ok) {
         throw StateError('health check failed');
       }
@@ -309,7 +311,8 @@ class _HomePageState extends State<_HomePage> {
     try {
       final req = await httpClient.postUrl(uri);
       req.headers.set(HttpHeaders.acceptHeader, 'application/json');
-      req.headers.set(HttpHeaders.contentTypeHeader, 'application/json; charset=utf-8');
+      req.headers.set(
+          HttpHeaders.contentTypeHeader, 'application/json; charset=utf-8');
       req.add(utf8.encode(jsonEncode(payload)));
       final resp = await req.close();
       final body = await utf8.decoder.bind(resp).join();
@@ -335,7 +338,9 @@ class _HomePageState extends State<_HomePage> {
       final parsed = await _httpGetJson(base.replace(path: '/models'));
       if (parsed is! Map) throw StateError('invalid /models response');
       final m = Map<String, dynamic>.from(parsed);
-      final avail = (m['available'] is List) ? List.from(m['available'] as List) : const <Object?>[];
+      final avail = (m['available'] is List)
+          ? List.from(m['available'] as List)
+          : const <Object?>[];
       final models = <Map<String, dynamic>>[];
       for (final item in avail) {
         if (item is Map) {
@@ -343,7 +348,8 @@ class _HomePageState extends State<_HomePage> {
         }
       }
 
-      final currentKey = _deepGet(m, <String>['current', 'model_key'])?.toString();
+      final currentKey =
+          _deepGet(m, <String>['current', 'model_key'])?.toString();
       final downloadedKeys = models
           .where((it) => it['downloaded'] == true)
           .map((it) => it['model_key']?.toString() ?? '')
@@ -383,7 +389,8 @@ class _HomePageState extends State<_HomePage> {
     }
   }
 
-  Future<void> _selectModel(String modelKey, {required bool userInitiated}) async {
+  Future<void> _selectModel(String modelKey,
+      {required bool userInitiated}) async {
     final base = _baseUri;
     if (base == null || _connState != _ConnState.connected) return;
     final cur = _deepGet(_health, <String>['model', 'model_key'])?.toString();
@@ -423,7 +430,8 @@ class _HomePageState extends State<_HomePage> {
         _modelError = e.toString();
         if (userInitiated) {
           // Keep selection in sync with the server if the user action fails.
-          _selectedModelKey = _deepGet(_health, <String>['model', 'model_key'])?.toString();
+          _selectedModelKey =
+              _deepGet(_health, <String>['model', 'model_key'])?.toString();
         }
       });
     } finally {
@@ -461,7 +469,11 @@ class _HomePageState extends State<_HomePage> {
         initialDirectory: _lastPickDir,
       );
       if (result == null || result.files.isEmpty) return;
-      final paths = result.files.map((f) => f.path).whereType<String>().where((p) => p.isNotEmpty).toList();
+      final paths = result.files
+          .map((f) => f.path)
+          .whereType<String>()
+          .where((p) => p.isNotEmpty)
+          .toList();
       if (paths.isEmpty) return;
       final images = paths.where(_isImagePath).toList(growable: false);
       if (images.isEmpty) {
@@ -543,7 +555,8 @@ class _HomePageState extends State<_HomePage> {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final panelWidth = _rightCollapsed ? _rightCollapsedWidth : _rightExpandedWidth;
+    final panelWidth =
+        _rightCollapsed ? _rightCollapsedWidth : _rightExpandedWidth;
 
     return DropTarget(
       // Important: this needs to wrap the whole page (like subocr) because the
@@ -552,7 +565,8 @@ class _HomePageState extends State<_HomePage> {
       onDragExited: (_) => setState(() => _dragging = false),
       onDragDone: (detail) async {
         setState(() => _dragging = false);
-        final paths = detail.files.map((e) => e.path).where((p) => p.isNotEmpty).toList();
+        final paths =
+            detail.files.map((e) => e.path).where((p) => p.isNotEmpty).toList();
         if (paths.isEmpty) return;
         await _handleInputPaths(paths);
       },
@@ -569,9 +583,17 @@ class _HomePageState extends State<_HomePage> {
                 const minMainWidth = 280.0;
                 const minLeftWidth = 160.0;
                 const resizeHandleWidth = 10.0;
-                final maxLeftWidthRaw = constraints.maxWidth - panelWidth - minMainWidth;
-                final maxLeftWidth = maxLeftWidthRaw < minLeftWidth ? minLeftWidth : maxLeftWidthRaw;
-                final leftWidth = _leftListWidth.clamp(minLeftWidth, maxLeftWidth);
+                final maxLeftWidthRaw =
+                    constraints.maxWidth - panelWidth - minMainWidth;
+                final maxLeftWidth = maxLeftWidthRaw < minLeftWidth
+                    ? minLeftWidth
+                    : maxLeftWidthRaw;
+                final leftWidth =
+                    _leftListWidth.clamp(minLeftWidth, maxLeftWidth);
+                final selectedImagePath = (_selectedImageIndex >= 0 &&
+                        _selectedImageIndex < _imagePaths.length)
+                    ? _imagePaths[_selectedImageIndex]
+                    : (_imagePaths.isNotEmpty ? _imagePaths.first : null);
 
                 return Stack(
                   fit: StackFit.expand,
@@ -589,22 +611,31 @@ class _HomePageState extends State<_HomePage> {
                                     ? Center(
                                         child: Text(
                                           l10n.imagesListEmpty,
-                                          style: Theme.of(context).textTheme.bodySmall,
+                                          style: Theme.of(context)
+                                              .textTheme
+                                              .bodySmall,
                                         ),
                                       )
                                     : ListView.builder(
                                         itemCount: _imagePaths.length,
                                         itemBuilder: (context, index) {
                                           final p = _imagePaths[index];
-                                          final selected = index == _selectedImageIndex;
+                                          final selected =
+                                              index == _selectedImageIndex;
                                           return Material(
                                             color: selected
-                                                ? Theme.of(context).colorScheme.primaryContainer
+                                                ? Theme.of(context)
+                                                    .colorScheme
+                                                    .primaryContainer
                                                 : Colors.transparent,
                                             child: InkWell(
-                                              onTap: () => setState(() => _selectedImageIndex = index),
+                                              onTap: () => setState(() =>
+                                                  _selectedImageIndex = index),
                                               child: Padding(
-                                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                                                padding:
+                                                    const EdgeInsets.symmetric(
+                                                        horizontal: 10,
+                                                        vertical: 8),
                                                 child: Row(
                                                   children: <Widget>[
                                                     Text('${index + 1}.'),
@@ -613,7 +644,8 @@ class _HomePageState extends State<_HomePage> {
                                                       child: Text(
                                                         _basename(p),
                                                         maxLines: 1,
-                                                        overflow: TextOverflow.ellipsis,
+                                                        overflow: TextOverflow
+                                                            .ellipsis,
                                                       ),
                                                     ),
                                                   ],
@@ -633,7 +665,8 @@ class _HomePageState extends State<_HomePage> {
                                   getInitialPosition: () => _leftListWidth,
                                   onPositionChanged: (pos) {
                                     setState(() {
-                                      _leftListWidth = pos.clamp(minLeftWidth, maxLeftWidth);
+                                      _leftListWidth =
+                                          pos.clamp(minLeftWidth, maxLeftWidth);
                                     });
                                   },
                                 ),
@@ -642,76 +675,114 @@ class _HomePageState extends State<_HomePage> {
                           ),
                         ),
                         Expanded(
-                          child: Center(
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: <Widget>[
-                                ElevatedButton.icon(
-                                  onPressed: _chooseFile,
-                                  icon: const Icon(Icons.insert_drive_file_outlined),
-                                  label: Text(l10n.chooseFile),
-                                ),
-                                const SizedBox(height: 12),
-                                ElevatedButton.icon(
-                                  onPressed: _chooseFolder,
-                                  icon: const Icon(Icons.folder_open_outlined),
-                                  label: Text(l10n.chooseFolder),
-                                ),
-                                if (_pickedFilePath != null) ...<Widget>[
-                                  const SizedBox(height: 12),
-                                  SizedBox(
-                                    width: 520,
-                                    child: Text(
-                                      l10n.selectedFileLabel(_pickedFilePath!),
-                                      maxLines: 2,
-                                      overflow: TextOverflow.ellipsis,
-                                      textAlign: TextAlign.center,
+                          child: selectedImagePath != null
+                              ? Container(
+                                  color: Theme.of(context).colorScheme.surface,
+                                  alignment: Alignment.center,
+                                  child: Padding(
+                                    padding: const EdgeInsets.all(16),
+                                    child: Image.file(
+                                      File(selectedImagePath),
+                                      fit: BoxFit.contain,
+                                      errorBuilder: (context, error, stack) {
+                                        return Text(
+                                          l10n.statusErrorPrefix(
+                                              error.toString()),
+                                          style: TextStyle(
+                                              color: Theme.of(context)
+                                                  .colorScheme
+                                                  .error),
+                                          maxLines: 3,
+                                          overflow: TextOverflow.ellipsis,
+                                          textAlign: TextAlign.center,
+                                        );
+                                      },
                                     ),
                                   ),
-                                ],
-                                if (_pickedFolderPath != null) ...<Widget>[
-                                  const SizedBox(height: 12),
-                                  SizedBox(
-                                    width: 520,
-                                    child: Text(
-                                      l10n.selectedFolderLabel(
-                                        _pickedFolderPath!,
-                                        _pickedFolderImageCount ?? 0,
+                                )
+                              : Center(
+                                  child: Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: <Widget>[
+                                      ElevatedButton.icon(
+                                        onPressed: _chooseFile,
+                                        icon: const Icon(
+                                            Icons.insert_drive_file_outlined),
+                                        label: Text(l10n.chooseFile),
                                       ),
-                                      maxLines: 3,
-                                      overflow: TextOverflow.ellipsis,
-                                      textAlign: TextAlign.center,
-                                    ),
+                                      const SizedBox(height: 12),
+                                      ElevatedButton.icon(
+                                        onPressed: _chooseFolder,
+                                        icon: const Icon(
+                                            Icons.folder_open_outlined),
+                                        label: Text(l10n.chooseFolder),
+                                      ),
+                                      if (_pickedFilePath != null) ...<Widget>[
+                                        const SizedBox(height: 12),
+                                        SizedBox(
+                                          width: 520,
+                                          child: Text(
+                                            l10n.selectedFileLabel(
+                                                _pickedFilePath!),
+                                            maxLines: 2,
+                                            overflow: TextOverflow.ellipsis,
+                                            textAlign: TextAlign.center,
+                                          ),
+                                        ),
+                                      ],
+                                      if (_pickedFolderPath !=
+                                          null) ...<Widget>[
+                                        const SizedBox(height: 12),
+                                        SizedBox(
+                                          width: 520,
+                                          child: Text(
+                                            l10n.selectedFolderLabel(
+                                              _pickedFolderPath!,
+                                              _pickedFolderImageCount ?? 0,
+                                            ),
+                                            maxLines: 3,
+                                            overflow: TextOverflow.ellipsis,
+                                            textAlign: TextAlign.center,
+                                          ),
+                                        ),
+                                      ],
+                                      if (_pickedImagesCount != null &&
+                                          _pickedFilePath == null &&
+                                          _pickedFolderPath ==
+                                              null) ...<Widget>[
+                                        const SizedBox(height: 12),
+                                        SizedBox(
+                                          width: 520,
+                                          child: Text(
+                                            l10n.selectedImagesCountLabel(
+                                                _pickedImagesCount!),
+                                            maxLines: 2,
+                                            overflow: TextOverflow.ellipsis,
+                                            textAlign: TextAlign.center,
+                                          ),
+                                        ),
+                                      ],
+                                      if (_pickError != null &&
+                                          _pickError!.isNotEmpty) ...<Widget>[
+                                        const SizedBox(height: 12),
+                                        SizedBox(
+                                          width: 520,
+                                          child: Text(
+                                            l10n.statusErrorPrefix(_pickError!),
+                                            maxLines: 3,
+                                            overflow: TextOverflow.ellipsis,
+                                            textAlign: TextAlign.center,
+                                            style: TextStyle(
+                                              color: Theme.of(context)
+                                                  .colorScheme
+                                                  .error,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ],
                                   ),
-                                ],
-                                if (_pickedImagesCount != null && _pickedFilePath == null && _pickedFolderPath == null) ...<Widget>[
-                                  const SizedBox(height: 12),
-                                  SizedBox(
-                                    width: 520,
-                                    child: Text(
-                                      l10n.selectedImagesCountLabel(_pickedImagesCount!),
-                                      maxLines: 2,
-                                      overflow: TextOverflow.ellipsis,
-                                      textAlign: TextAlign.center,
-                                    ),
-                                  ),
-                                ],
-                                if (_pickError != null && _pickError!.isNotEmpty) ...<Widget>[
-                                  const SizedBox(height: 12),
-                                  SizedBox(
-                                    width: 520,
-                                    child: Text(
-                                      l10n.statusErrorPrefix(_pickError!),
-                                      maxLines: 3,
-                                      overflow: TextOverflow.ellipsis,
-                                      textAlign: TextAlign.center,
-                                      style: TextStyle(color: Theme.of(context).colorScheme.error),
-                                    ),
-                                  ),
-                                ],
-                              ],
-                            ),
-                          ),
+                                ),
                         ),
                         _ServerStatusPanel(
                           width: panelWidth,
@@ -727,7 +798,8 @@ class _HomePageState extends State<_HomePage> {
                           settingModel: _settingModel,
                           modelError: _modelError,
                           onConnect: _connect,
-                          onSelectModel: (key) => _selectModel(key, userInitiated: true),
+                          onSelectModel: (key) =>
+                              _selectModel(key, userInitiated: true),
                         ),
                       ],
                     ),
@@ -751,7 +823,10 @@ class _HomePageState extends State<_HomePage> {
             Positioned.fill(
               child: IgnorePointer(
                 child: Container(
-                  color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.16),
+                  color: Theme.of(context)
+                      .colorScheme
+                      .primary
+                      .withValues(alpha: 0.16),
                 ),
               ),
             ),
@@ -841,7 +916,8 @@ class _ServerStatusPanel extends StatelessWidget {
                   ),
                   const SizedBox(height: 8),
                   ElevatedButton(
-                    onPressed: connState == _ConnState.connecting ? null : onConnect,
+                    onPressed:
+                        connState == _ConnState.connecting ? null : onConnect,
                     child: Text(l10n.connect),
                   ),
                   const SizedBox(height: 12),
@@ -852,7 +928,8 @@ class _ServerStatusPanel extends StatelessWidget {
                       Container(
                         width: 10,
                         height: 10,
-                        decoration: BoxDecoration(color: dotColor, shape: BoxShape.circle),
+                        decoration: BoxDecoration(
+                            color: dotColor, shape: BoxShape.circle),
                       ),
                       const SizedBox(width: 8),
                       Expanded(child: Text(statusText)),
@@ -862,7 +939,8 @@ class _ServerStatusPanel extends StatelessWidget {
                     const SizedBox(height: 8),
                     Text(
                       l10n.statusErrorPrefix(lastError!),
-                      style: TextStyle(color: Theme.of(context).colorScheme.error),
+                      style:
+                          TextStyle(color: Theme.of(context).colorScheme.error),
                       maxLines: 4,
                       overflow: TextOverflow.ellipsis,
                     ),
@@ -871,7 +949,8 @@ class _ServerStatusPanel extends StatelessWidget {
                     const SizedBox(height: 8),
                     Text(
                       l10n.statusErrorPrefix(modelError!),
-                      style: TextStyle(color: Theme.of(context).colorScheme.error),
+                      style:
+                          TextStyle(color: Theme.of(context).colorScheme.error),
                       maxLines: 4,
                       overflow: TextOverflow.ellipsis,
                     ),
@@ -882,10 +961,17 @@ class _ServerStatusPanel extends StatelessWidget {
                     style: Theme.of(context).textTheme.titleSmall,
                   ),
                   const SizedBox(height: 8),
-                  _kv(context, l10n.statusServerOkLabel, health?['ok'] == true ? 'true' : '-'),
-                  _kv(context, l10n.statusModelKeyLabel, _deepGet(health, ['model', 'model_key'])?.toString() ?? '-'),
-                  _kv(context, l10n.statusDeviceLabel, _deepGet(health, ['model', 'device'])?.toString() ?? '-'),
-                  _kv(context, l10n.statusSessionsLabel, health?['sessions']?.toString() ?? '-'),
+                  _kv(context, l10n.statusServerOkLabel,
+                      health?['ok'] == true ? 'true' : '-'),
+                  _kv(
+                      context,
+                      l10n.statusModelKeyLabel,
+                      _deepGet(health, ['model', 'model_key'])?.toString() ??
+                          '-'),
+                  _kv(context, l10n.statusDeviceLabel,
+                      _deepGet(health, ['model', 'device'])?.toString() ?? '-'),
+                  _kv(context, l10n.statusSessionsLabel,
+                      health?['sessions']?.toString() ?? '-'),
                 ],
               ),
             ),
@@ -896,13 +982,17 @@ class _ServerStatusPanel extends StatelessWidget {
     final l10n = AppLocalizations.of(context)!;
     final theme = Theme.of(context);
 
-    final downloaded = models.where((m) => m['downloaded'] == true).toList(growable: false);
+    final downloaded =
+        models.where((m) => m['downloaded'] == true).toList(growable: false);
     final keys = downloaded
         .map((m) => m['model_key']?.toString() ?? '')
         .where((k) => k.isNotEmpty)
         .toList(growable: false);
 
-    final enabled = connState == _ConnState.connected && !modelsLoading && !settingModel && keys.isNotEmpty;
+    final enabled = connState == _ConnState.connected &&
+        !modelsLoading &&
+        !settingModel &&
+        keys.isNotEmpty;
 
     Widget pickerChild;
     if (keys.isEmpty) {
@@ -980,7 +1070,8 @@ class _ServerStatusPanel extends StatelessWidget {
           width: 54,
           child: Text(
             l10n.modelSelectLabel,
-            style: theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
+            style: theme.textTheme.bodyMedium
+                ?.copyWith(fontWeight: FontWeight.w600),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
           ),
@@ -1026,7 +1117,8 @@ class _ServerStatusPanel extends StatelessWidget {
 }
 
 class _DividerToggleButton extends StatelessWidget {
-  const _DividerToggleButton({required this.collapsed, required this.onPressed});
+  const _DividerToggleButton(
+      {required this.collapsed, required this.onPressed});
 
   final bool collapsed;
   final VoidCallback onPressed;
