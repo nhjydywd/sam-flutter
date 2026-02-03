@@ -34,6 +34,7 @@
   "promptsSummary": "Prompts: +{pos} -{neg}",
   "predicting": "Predicting…",
   "maskSummary": "Mask: area {area}  score {score}  ({ms} ms)",
+  "maskNotComputed": "Mask: not computed",
   "@statusErrorPrefix": {
     "placeholders": {
       "error": {

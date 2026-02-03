@@ -62,9 +62,12 @@ Offset? mapLocalToImagePx({
     imageHeight: imageHeight,
   );
   final r = layout.destRect;
-  if (!r.contains(localPosition)) return null;
-  final x = (localPosition.dx - r.left) / layout.scale;
-  final y = (localPosition.dy - r.top) / layout.scale;
+  if (r.isEmpty) return null;
+  // Be forgiving: clamp clicks to the displayed image rect.
+  final clampedX = localPosition.dx.clamp(r.left, r.right);
+  final clampedY = localPosition.dy.clamp(r.top, r.bottom);
+  final x = (clampedX - r.left) / layout.scale;
+  final y = (clampedY - r.top) / layout.scale;
   final maxX = math.max(0.0, imageWidth.toDouble() - 1.0);
   final maxY = math.max(0.0, imageHeight.toDouble() - 1.0);
   return Offset(x.clamp(0.0, maxX), y.clamp(0.0, maxY));
@@ -77,7 +80,7 @@ class SegmentationPreview extends StatelessWidget {
     this.maskAlpha,
     this.points = const <PromptPoint>[],
     this.onAddPoint,
-    this.dimFactor = 0.35,
+    this.dimFactor = 0.05,
   });
 
   final ui.Image image;
@@ -165,53 +168,34 @@ class _SegmentationPainter extends CustomPainter {
       image.height.toDouble(),
     );
 
-    final mask = maskAlpha;
-    if (mask == null) {
-      // No mask yet: show original image.
-      canvas.drawImageRect(image, src, dest, Paint());
-    } else {
-      // 1) Dimmed full image (background).
-      final d = dimFactor.clamp(0.0, 1.0);
-      final dimPaint = Paint()
-        ..colorFilter = ColorFilter.matrix(<double>[
-          d,
-          0,
-          0,
-          0,
-          0,
-          0,
-          d,
-          0,
-          0,
-          0,
-          0,
-          0,
-          d,
-          0,
-          0,
-          0,
-          0,
-          0,
-          1,
-          0,
-        ]);
-      canvas.drawImageRect(image, src, dest, dimPaint);
+    // 1) Base image.
+    canvas.drawImageRect(image, src, dest, Paint());
 
-      // 2) Original image inside mask (mask-alpha clip).
-      final layerRect = dest.inflate(1);
-      canvas.saveLayer(layerRect, Paint());
-      canvas.drawImageRect(image, src, dest, Paint());
+    // 2) Blacken the background outside the mask.
+    final mask = maskAlpha;
+    if (mask != null) {
       final maskSrc = Rect.fromLTWH(
         0,
         0,
         mask.width.toDouble(),
         mask.height.toDouble(),
       );
+
+      // Draw the dark overlay into a layer, then "punch out" the mask region.
+      // This yields: inside mask = original; outside mask = darker.
+      final layerRect = dest.inflate(1);
+      canvas.saveLayer(layerRect, Paint());
+
+      final overlayAlpha = (1.0 - dimFactor).clamp(0.0, 1.0);
+      canvas.drawRect(
+        dest,
+        Paint()..color = Colors.black.withValues(alpha: overlayAlpha),
+      );
       canvas.drawImageRect(
         mask,
         maskSrc,
         dest,
-        Paint()..blendMode = BlendMode.dstIn,
+        Paint()..blendMode = BlendMode.dstOut,
       );
       canvas.restore();
     }

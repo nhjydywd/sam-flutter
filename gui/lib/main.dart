@@ -667,6 +667,13 @@ class _HomePageState extends State<_HomePage> {
             ? (imgResp['height'] as num).toInt()
             : null;
       });
+      // If the user already placed points while embedding was computing, run a
+      // predict immediately after we're ready.
+      if (mounted &&
+          requestToken == _embedRequestToken &&
+          _promptPoints.isNotEmpty) {
+        _runPredict();
+      }
     } catch (e) {
       if (requestToken != _embedRequestToken) return;
       setState(() {
@@ -1047,16 +1054,17 @@ class _HomePageState extends State<_HomePage> {
                                               return SegmentationPreview(
                                                 image: img,
                                                 maskAlpha: mask,
-                                                points: _promptPoints,
+                                                points: List<
+                                                        PromptPoint>.unmodifiable(
+                                                    _promptPoints),
                                                 onAddPoint: (pt) {
-                                                  if (_embeddingState !=
-                                                      _EmbeddingState.ready) {
-                                                    return;
-                                                  }
                                                   setState(() {
                                                     _promptPoints.add(pt);
                                                   });
-                                                  _runPredict();
+                                                  if (_embeddingState ==
+                                                      _EmbeddingState.ready) {
+                                                    _runPredict();
+                                                  }
                                                 },
                                               );
                                             },
@@ -1071,7 +1079,8 @@ class _HomePageState extends State<_HomePage> {
                                           embeddingError: _embeddingError,
                                           embeddingElapsedMs:
                                               _embeddingElapsedMs,
-                                          promptPoints: _promptPoints,
+                                          hasPrompts: _promptPoints.isNotEmpty,
+                                          hasMask: _activeMaskAlpha != null,
                                           predicting: _predicting,
                                           predictError: _predictError,
                                           predictScore: _predictScore,
@@ -1223,7 +1232,8 @@ class _ImageStatusBar extends StatelessWidget {
     required this.embeddingState,
     required this.embeddingError,
     required this.embeddingElapsedMs,
-    required this.promptPoints,
+    required this.hasPrompts,
+    required this.hasMask,
     required this.predicting,
     required this.predictError,
     required this.predictScore,
@@ -1234,7 +1244,8 @@ class _ImageStatusBar extends StatelessWidget {
   final _EmbeddingState embeddingState;
   final String? embeddingError;
   final double? embeddingElapsedMs;
-  final List<PromptPoint> promptPoints;
+  final bool hasPrompts;
+  final bool hasMask;
   final bool predicting;
   final String? predictError;
   final double? predictScore;
@@ -1245,9 +1256,6 @@ class _ImageStatusBar extends StatelessWidget {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final theme = Theme.of(context);
-
-    final pos = promptPoints.where((p) => p.label == 1).length;
-    final neg = promptPoints.where((p) => p.label == 0).length;
 
     String embedText;
     TextStyle? embedStyle;
@@ -1272,8 +1280,6 @@ class _ImageStatusBar extends StatelessWidget {
         break;
     }
 
-    final promptText = l10n.promptsSummary(pos, neg);
-
     String? predictText;
     TextStyle? predictStyle;
     if (predicting) {
@@ -1287,6 +1293,8 @@ class _ImageStatusBar extends StatelessWidget {
         (predictScore ?? 0).toStringAsFixed(4),
         (predictElapsedMs ?? 0).round(),
       );
+    } else if (hasPrompts && !hasMask) {
+      predictText = l10n.maskNotComputed;
     }
 
     return Column(
@@ -1299,22 +1307,16 @@ class _ImageStatusBar extends StatelessWidget {
           overflow: TextOverflow.ellipsis,
           textAlign: TextAlign.center,
         ),
-        const SizedBox(height: 6),
-        Wrap(
-          alignment: WrapAlignment.center,
-          spacing: 12,
-          runSpacing: 6,
-          children: <Widget>[
-            Text(promptText, maxLines: 1, overflow: TextOverflow.ellipsis),
-            if (predictText != null)
-              Text(
-                predictText,
-                style: predictStyle,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-              ),
-          ],
-        ),
+        if (predictText != null) ...<Widget>[
+          const SizedBox(height: 6),
+          Text(
+            predictText,
+            style: predictStyle,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            textAlign: TextAlign.center,
+          ),
+        ],
       ],
     );
   }
