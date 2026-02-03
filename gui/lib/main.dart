@@ -9,6 +9,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_gen/gen_l10n/app_localizations.dart';
 
 import 'app_settings.dart';
+import 'widgets/drag_divider.dart';
 
 void main() {
   runApp(const SamFlutterApp());
@@ -70,6 +71,9 @@ class _HomePageState extends State<_HomePage> {
   bool _dragging = false;
   String? _pickError;
   String? _lastPickDir;
+  final List<String> _imagePaths = <String>[];
+  int _selectedImageIndex = -1;
+  double _leftListWidth = 260.0;
   static const double _rightExpandedWidth = 320.0;
   static const double _rightCollapsedWidth = 24.0;
   bool _appliedSettings = false;
@@ -91,9 +95,14 @@ class _HomePageState extends State<_HomePage> {
     return _imageExtensions.contains(ext);
   }
 
-  Future<(int count, String? firstPath)> _collectImagesFromPaths(List<String> paths) async {
-    int count = 0;
-    String? firstPath;
+  String _basename(String path) {
+    final parts = path.split(RegExp(r'[\\/]'));
+    return parts.isEmpty ? path : parts.last;
+  }
+
+  Future<List<String>> _collectImagesFromPaths(List<String> paths) async {
+    final out = <String>[];
+    final seen = <String>{};
 
     for (final p in paths) {
       try {
@@ -105,20 +114,18 @@ class _HomePageState extends State<_HomePage> {
             if (ent is! File) continue;
             final fp = ent.path;
             if (!_isImagePath(fp)) continue;
-            count += 1;
-            firstPath ??= fp;
+            if (seen.add(fp)) out.add(fp);
           }
         } else if (type == FileSystemEntityType.file) {
           if (!_isImagePath(p)) continue;
-          count += 1;
-          firstPath ??= p;
+          if (seen.add(p)) out.add(p);
         }
       } catch (_) {
         // Ignore broken paths.
       }
     }
 
-    return (count, firstPath);
+    return out;
   }
 
   Future<void> _handleInputPaths(List<String> paths) async {
@@ -127,8 +134,8 @@ class _HomePageState extends State<_HomePage> {
       _pickError = null;
     });
 
-    final (count, firstPath) = await _collectImagesFromPaths(paths);
-    if (count <= 0) {
+    final images = await _collectImagesFromPaths(paths);
+    if (images.isEmpty) {
       setState(() {
         _pickedFilePath = null;
         _pickedFolderPath = null;
@@ -151,16 +158,18 @@ class _HomePageState extends State<_HomePage> {
           _pickedImagesCount = 1;
         });
         _lastPickDir = File(p).parent.path;
+        _addImages(images);
         return;
       }
       if (t == FileSystemEntityType.directory) {
         setState(() {
           _pickedFolderPath = p;
-          _pickedFolderImageCount = count;
+          _pickedFolderImageCount = images.length;
           _pickedFilePath = null;
-          _pickedImagesCount = count;
+          _pickedImagesCount = images.length;
         });
         _lastPickDir = p;
+        _addImages(images);
         return;
       }
     }
@@ -170,14 +179,26 @@ class _HomePageState extends State<_HomePage> {
       _pickedFilePath = null;
       _pickedFolderPath = null;
       _pickedFolderImageCount = null;
-      _pickedImagesCount = count;
+      _pickedImagesCount = images.length;
     });
 
-    if (firstPath != null) {
-      try {
-        _lastPickDir = File(firstPath).parent.path;
-      } catch (_) {}
-    }
+    _addImages(images);
+    try {
+      _lastPickDir = File(images.first).parent.path;
+    } catch (_) {}
+  }
+
+  void _addImages(List<String> images) {
+    if (images.isEmpty) return;
+    final existing = _imagePaths.toSet();
+    final toAdd = images.where(existing.add).toList(growable: false);
+    if (toAdd.isEmpty) return;
+    setState(() {
+      _imagePaths.addAll(toAdd);
+      if (_selectedImageIndex < 0 && _imagePaths.isNotEmpty) {
+        _selectedImageIndex = 0;
+      }
+    });
   }
 
   @override
@@ -433,23 +454,31 @@ class _HomePageState extends State<_HomePage> {
     });
     try {
       final result = await FilePicker.platform.pickFiles(
-        allowMultiple: false,
+        allowMultiple: true,
         type: FileType.custom,
         allowedExtensions: _imageExtensions,
         dialogTitle: l10n.chooseFile,
         initialDirectory: _lastPickDir,
       );
       if (result == null || result.files.isEmpty) return;
-      final path = result.files.single.path;
-      if (path == null || path.isEmpty) return;
+      final paths = result.files.map((f) => f.path).whereType<String>().where((p) => p.isNotEmpty).toList();
+      if (paths.isEmpty) return;
+      final images = paths.where(_isImagePath).toList(growable: false);
+      if (images.isEmpty) {
+        setState(() {
+          _pickError = l10n.noImagesFound;
+        });
+        return;
+      }
 
       setState(() {
-        _pickedFilePath = path;
+        _pickedFilePath = images.length == 1 ? images.first : null;
         _pickedFolderPath = null;
         _pickedFolderImageCount = null;
-        _pickedImagesCount = 1;
+        _pickedImagesCount = images.length;
       });
-      _lastPickDir = File(path).parent.path;
+      _lastPickDir = File(images.first).parent.path;
+      _addImages(images);
     } catch (e) {
       setState(() {
         _pickError = e.toString();
@@ -470,13 +499,30 @@ class _HomePageState extends State<_HomePage> {
       if (dirPath == null || dirPath.isEmpty) return;
 
       int count = 0;
+      final images = <String>[];
+      final seen = <String>{};
       final dir = Directory(dirPath);
       if (dir.existsSync()) {
         // Recursive scan (images only). Note: this can take time for large folders.
         await for (final ent in dir.list(recursive: true, followLinks: false)) {
           if (ent is! File) continue;
-          if (_isImagePath(ent.path)) count += 1;
+          if (!_isImagePath(ent.path)) continue;
+          final p = ent.path;
+          if (seen.add(p)) images.add(p);
+          count += 1;
         }
+      }
+
+      if (count <= 0) {
+        setState(() {
+          _pickedFolderPath = dirPath;
+          _pickedFolderImageCount = 0;
+          _pickedFilePath = null;
+          _pickedImagesCount = 0;
+          _pickError = l10n.noImagesFound;
+        });
+        _lastPickDir = dirPath;
+        return;
       }
 
       setState(() {
@@ -486,6 +532,7 @@ class _HomePageState extends State<_HomePage> {
         _pickedImagesCount = count;
       });
       _lastPickDir = dirPath;
+      _addImages(images);
     } catch (e) {
       setState(() {
         _pickError = e.toString();
@@ -513,19 +560,87 @@ class _HomePageState extends State<_HomePage> {
         fit: StackFit.expand,
         children: <Widget>[
           Scaffold(
-            appBar: AppBar(title: Text(l10n.appTitle)),
             body: LayoutBuilder(
               builder: (context, constraints) {
                 final dividerX = constraints.maxWidth - panelWidth;
                 const btnSize = 28.0;
                 final btnLeft = dividerX - (btnSize / 2);
                 final btnTop = (constraints.maxHeight / 2) - (btnSize / 2);
+                const minMainWidth = 280.0;
+                const minLeftWidth = 160.0;
+                const resizeHandleWidth = 10.0;
+                final maxLeftWidthRaw = constraints.maxWidth - panelWidth - minMainWidth;
+                final maxLeftWidth = maxLeftWidthRaw < minLeftWidth ? minLeftWidth : maxLeftWidthRaw;
+                final leftWidth = _leftListWidth.clamp(minLeftWidth, maxLeftWidth);
 
                 return Stack(
                   fit: StackFit.expand,
                   children: <Widget>[
                     Row(
                       children: <Widget>[
+                        SizedBox(
+                          width: leftWidth,
+                          child: Stack(
+                            fit: StackFit.expand,
+                            children: <Widget>[
+                              Material(
+                                color: Theme.of(context).colorScheme.surface,
+                                child: _imagePaths.isEmpty
+                                    ? Center(
+                                        child: Text(
+                                          l10n.imagesListEmpty,
+                                          style: Theme.of(context).textTheme.bodySmall,
+                                        ),
+                                      )
+                                    : ListView.builder(
+                                        itemCount: _imagePaths.length,
+                                        itemBuilder: (context, index) {
+                                          final p = _imagePaths[index];
+                                          final selected = index == _selectedImageIndex;
+                                          return Material(
+                                            color: selected
+                                                ? Theme.of(context).colorScheme.primaryContainer
+                                                : Colors.transparent,
+                                            child: InkWell(
+                                              onTap: () => setState(() => _selectedImageIndex = index),
+                                              child: Padding(
+                                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                                                child: Row(
+                                                  children: <Widget>[
+                                                    Text('${index + 1}.'),
+                                                    const SizedBox(width: 8),
+                                                    Expanded(
+                                                      child: Text(
+                                                        _basename(p),
+                                                        maxLines: 1,
+                                                        overflow: TextOverflow.ellipsis,
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ),
+                                              ),
+                                            ),
+                                          );
+                                        },
+                                      ),
+                              ),
+                              Positioned(
+                                right: 0,
+                                top: 0,
+                                bottom: 0,
+                                child: DragDivider(
+                                  hitWidth: resizeHandleWidth,
+                                  getInitialPosition: () => _leftListWidth,
+                                  onPositionChanged: (pos) {
+                                    setState(() {
+                                      _leftListWidth = pos.clamp(minLeftWidth, maxLeftWidth);
+                                    });
+                                  },
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
                         Expanded(
                           child: Center(
                             child: Column(

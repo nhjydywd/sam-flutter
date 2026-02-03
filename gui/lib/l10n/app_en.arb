@@ -4,6 +4,7 @@
   "helloWorld": "Hello, world",
   "chooseFile": "Choose file",
   "chooseFolder": "Choose folder",
+  "imagesListEmpty": "No images",
   "selectedImagesCountLabel": "Selected images: {count}",
   "noImagesFound": "No image files found",
   "selectedFileLabel": "Selected file: {path}",

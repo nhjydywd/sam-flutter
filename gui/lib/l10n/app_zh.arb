@@ -4,6 +4,7 @@
   "helloWorld": "你好，世界",
   "chooseFile": "选择文件",
   "chooseFolder": "选择文件夹",
+  "imagesListEmpty": "暂无图片",
   "selectedImagesCountLabel": "已选择图片：{count}",
   "noImagesFound": "未找到图片文件",
   "selectedFileLabel": "已选择文件：{path}",
