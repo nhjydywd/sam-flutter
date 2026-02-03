@@ -1,6 +1,20 @@
 {
   "@@locale": "zh",
   "appTitle": "sam-flutter",
-  "helloWorld": "你好，世界"
+  "helloWorld": "你好，世界",
+  "serverPanelTitle": "服务器",
+  "serverAddressLabel": "服务器地址",
+  "serverAddressHint": "http://127.0.0.1:8000",
+  "connect": "连接",
+  "statusConnecting": "连接中…",
+  "statusConnected": "已连接",
+  "statusDisconnected": "未连接",
+  "statusErrorPrefix": "错误：{error}",
+  "@statusErrorPrefix": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  }
 }
-

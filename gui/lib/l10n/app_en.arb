@@ -1,6 +1,20 @@
 {
   "@@locale": "en",
   "appTitle": "sam-flutter",
-  "helloWorld": "Hello, world"
+  "helloWorld": "Hello, world",
+  "serverPanelTitle": "Server",
+  "serverAddressLabel": "Server address",
+  "serverAddressHint": "http://127.0.0.1:8000",
+  "connect": "Connect",
+  "statusConnecting": "Connecting…",
+  "statusConnected": "Connected",
+  "statusDisconnected": "Disconnected",
+  "statusErrorPrefix": "Error: {error}",
+  "@statusErrorPrefix": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  }
 }
-
