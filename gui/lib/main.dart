@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:dropdown_button2/dropdown_button2.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_gen/gen_l10n/app_localizations.dart';
@@ -61,10 +62,24 @@ class _HomePageState extends State<_HomePage> {
   String? _selectedModelKey;
   bool _settingModel = false;
   String? _modelError;
+  String? _pickedFilePath;
+  String? _pickedFolderPath;
+  int? _pickedFolderImageCount;
+  String? _pickError;
+  String? _lastPickDir;
   static const double _rightExpandedWidth = 320.0;
   static const double _rightCollapsedWidth = 24.0;
   bool _appliedSettings = false;
   String _preferredModelKey = '';
+  static const List<String> _imageExtensions = <String>[
+    'png',
+    'jpg',
+    'jpeg',
+    'webp',
+    'bmp',
+    'tif',
+    'tiff',
+  ];
 
   @override
   void initState() {
@@ -312,6 +327,74 @@ class _HomePageState extends State<_HomePage> {
     return cur;
   }
 
+  Future<void> _chooseFile() async {
+    final l10n = AppLocalizations.of(context)!;
+    setState(() {
+      _pickError = null;
+    });
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        allowMultiple: false,
+        type: FileType.custom,
+        allowedExtensions: _imageExtensions,
+        dialogTitle: l10n.chooseFile,
+        initialDirectory: _lastPickDir,
+      );
+      if (result == null || result.files.isEmpty) return;
+      final path = result.files.single.path;
+      if (path == null || path.isEmpty) return;
+
+      setState(() {
+        _pickedFilePath = path;
+        _pickedFolderPath = null;
+        _pickedFolderImageCount = null;
+      });
+      _lastPickDir = File(path).parent.path;
+    } catch (e) {
+      setState(() {
+        _pickError = e.toString();
+      });
+    }
+  }
+
+  Future<void> _chooseFolder() async {
+    final l10n = AppLocalizations.of(context)!;
+    setState(() {
+      _pickError = null;
+    });
+    try {
+      final dirPath = await FilePicker.platform.getDirectoryPath(
+        dialogTitle: l10n.chooseFolder,
+        initialDirectory: _lastPickDir,
+      );
+      if (dirPath == null || dirPath.isEmpty) return;
+
+      int count = 0;
+      final dir = Directory(dirPath);
+      if (dir.existsSync()) {
+        // Non-recursive scan; keep it fast for a first pass.
+        for (final ent in dir.listSync(followLinks: false)) {
+          if (ent is! File) continue;
+          final ext = ent.path.split('.').last.toLowerCase();
+          if (_imageExtensions.contains(ext)) {
+            count += 1;
+          }
+        }
+      }
+
+      setState(() {
+        _pickedFolderPath = dirPath;
+        _pickedFolderImageCount = count;
+        _pickedFilePath = null;
+      });
+      _lastPickDir = dirPath;
+    } catch (e) {
+      setState(() {
+        _pickError = e.toString();
+      });
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
@@ -336,20 +419,56 @@ class _HomePageState extends State<_HomePage> {
                         mainAxisSize: MainAxisSize.min,
                         children: <Widget>[
                           ElevatedButton.icon(
-                            onPressed: () {
-                              // TODO: implement file picker
-                            },
+                            onPressed: _chooseFile,
                             icon: const Icon(Icons.insert_drive_file_outlined),
                             label: Text(l10n.chooseFile),
                           ),
                           const SizedBox(height: 12),
                           ElevatedButton.icon(
-                            onPressed: () {
-                              // TODO: implement folder picker + scan
-                            },
+                            onPressed: _chooseFolder,
                             icon: const Icon(Icons.folder_open_outlined),
                             label: Text(l10n.chooseFolder),
                           ),
+                          if (_pickedFilePath != null) ...<Widget>[
+                            const SizedBox(height: 12),
+                            SizedBox(
+                              width: 520,
+                              child: Text(
+                                l10n.selectedFileLabel(_pickedFilePath!),
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                textAlign: TextAlign.center,
+                              ),
+                            ),
+                          ],
+                          if (_pickedFolderPath != null) ...<Widget>[
+                            const SizedBox(height: 12),
+                            SizedBox(
+                              width: 520,
+                              child: Text(
+                                l10n.selectedFolderLabel(
+                                  _pickedFolderPath!,
+                                  _pickedFolderImageCount ?? 0,
+                                ),
+                                maxLines: 3,
+                                overflow: TextOverflow.ellipsis,
+                                textAlign: TextAlign.center,
+                              ),
+                            ),
+                          ],
+                          if (_pickError != null && _pickError!.isNotEmpty) ...<Widget>[
+                            const SizedBox(height: 12),
+                            SizedBox(
+                              width: 520,
+                              child: Text(
+                                l10n.statusErrorPrefix(_pickError!),
+                                maxLines: 3,
+                                overflow: TextOverflow.ellipsis,
+                                textAlign: TextAlign.center,
+                                style: TextStyle(color: Theme.of(context).colorScheme.error),
+                              ),
+                            ),
+                          ],
                         ],
                       ),
                     ),

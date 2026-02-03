@@ -4,6 +4,8 @@
   "helloWorld": "你好，世界",
   "chooseFile": "选择文件",
   "chooseFolder": "选择文件夹",
+  "selectedFileLabel": "已选择文件：{path}",
+  "selectedFolderLabel": "已选择文件夹：{path}（图片：{count}）",
   "serverPanelTitle": "服务器",
   "serverAddressLabel": "服务器地址",
   "serverAddressHint": "http://127.0.0.1:8000",
@@ -24,6 +26,23 @@
     "placeholders": {
       "error": {
         "type": "String"
+      }
+    }
+  },
+  "@selectedFileLabel": {
+    "placeholders": {
+      "path": {
+        "type": "String"
+      }
+    }
+  },
+  "@selectedFolderLabel": {
+    "placeholders": {
+      "path": {
+        "type": "String"
+      },
+      "count": {
+        "type": "int"
       }
     }
   }

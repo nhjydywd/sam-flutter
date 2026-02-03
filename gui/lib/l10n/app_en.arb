@@ -4,6 +4,8 @@
   "helloWorld": "Hello, world",
   "chooseFile": "Choose file",
   "chooseFolder": "Choose folder",
+  "selectedFileLabel": "Selected file: {path}",
+  "selectedFolderLabel": "Selected folder: {path}  (images: {count})",
   "serverPanelTitle": "Server",
   "serverAddressLabel": "Server address",
   "serverAddressHint": "http://127.0.0.1:8000",
@@ -24,6 +26,23 @@
     "placeholders": {
       "error": {
         "type": "String"
+      }
+    }
+  },
+  "@selectedFileLabel": {
+    "placeholders": {
+      "path": {
+        "type": "String"
+      }
+    }
+  },
+  "@selectedFolderLabel": {
+    "placeholders": {
+      "path": {
+        "type": "String"
+      },
+      "count": {
+        "type": "int"
       }
     }
   }
