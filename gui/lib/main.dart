@@ -332,7 +332,26 @@ class _HomePageState extends State<_HomePage> {
                 children: <Widget>[
                   Expanded(
                     child: Center(
-                      child: Text(l10n.helloWorld),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: <Widget>[
+                          ElevatedButton.icon(
+                            onPressed: () {
+                              // TODO: implement file picker
+                            },
+                            icon: const Icon(Icons.insert_drive_file_outlined),
+                            label: Text(l10n.chooseFile),
+                          ),
+                          const SizedBox(height: 12),
+                          ElevatedButton.icon(
+                            onPressed: () {
+                              // TODO: implement folder picker + scan
+                            },
+                            icon: const Icon(Icons.folder_open_outlined),
+                            label: Text(l10n.chooseFolder),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                   _ServerStatusPanel(
@@ -440,17 +459,6 @@ class _ServerStatusPanel extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: <Widget>[
-                  Row(
-                    children: <Widget>[
-                      Expanded(
-                        child: Text(
-                          l10n.serverPanelTitle,
-                          style: Theme.of(context).textTheme.titleMedium,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
                   TextField(
                     controller: serverController,
                     decoration: InputDecoration(
@@ -526,62 +534,89 @@ class _ServerStatusPanel extends StatelessWidget {
 
     final enabled = connState == _ConnState.connected && !modelsLoading && !settingModel && keys.isNotEmpty;
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: <Widget>[
-        Text(l10n.modelSelectLabel, style: theme.textTheme.labelMedium),
-        const SizedBox(height: 6),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
-          decoration: BoxDecoration(
-            border: Border.all(color: theme.dividerColor),
-            borderRadius: BorderRadius.circular(4),
-          ),
-          child: DropdownButtonHideUnderline(
-            child: DropdownButton2<String>(
-              focusNode: modelFocusNode,
-              // Ensure focus highlight doesn't stick around on desktop after a selection.
-              onMenuStateChange: (isOpen) {
-                if (!isOpen) modelFocusNode.unfocus();
-              },
-              buttonStyleData: const ButtonStyleData(
-                overlayColor: WidgetStatePropertyAll<Color?>(Colors.transparent),
-              ),
-              isExpanded: true,
-              value: (selectedModelKey != null && keys.contains(selectedModelKey)) ? selectedModelKey : (keys.isNotEmpty ? keys.first : null),
-              hint: Text(
-                modelsLoading ? l10n.modelSelectLoading : l10n.modelSelectNone,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-              items: keys
-                  .map(
-                    (k) => DropdownMenuItem<String>(
-                      value: k,
-                      child: Text(
-                        k,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
+    Widget pickerChild;
+    if (keys.isEmpty) {
+      pickerChild = Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          border: Border.all(color: theme.dividerColor),
+          borderRadius: BorderRadius.circular(4),
+        ),
+        child: Text(
+          modelsLoading ? l10n.modelSelectLoading : l10n.modelSelectNone,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+      );
+    } else {
+      pickerChild = Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
+        decoration: BoxDecoration(
+          border: Border.all(color: theme.dividerColor),
+          borderRadius: BorderRadius.circular(4),
+        ),
+        child: DropdownButtonHideUnderline(
+          child: DropdownButton2<String>(
+            focusNode: modelFocusNode,
+            // Ensure focus highlight doesn't stick around on desktop after a selection.
+            onMenuStateChange: (isOpen) {
+              if (!isOpen) modelFocusNode.unfocus();
+            },
+            buttonStyleData: const ButtonStyleData(
+              overlayColor: WidgetStatePropertyAll<Color?>(Colors.transparent),
+            ),
+            isExpanded: true,
+            value: (selectedModelKey != null && keys.contains(selectedModelKey))
+                ? selectedModelKey
+                : (keys.isNotEmpty ? keys.first : null),
+            hint: Text(
+              modelsLoading ? l10n.modelSelectLoading : l10n.modelSelectNone,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            items: keys
+                .map(
+                  (k) => DropdownMenuItem<String>(
+                    value: k,
+                    child: Text(
+                      k,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
-                  )
-                  .toList(growable: false),
-              onChanged: enabled
-                  ? (v) {
-                      if (v == null) return;
-                      modelFocusNode.unfocus();
-                      if (v != selectedModelKey) onSelectModel(v);
-                    }
-                  : null,
-              dropdownStyleData: const DropdownStyleData(
-                maxHeight: 320,
-              ),
-              menuItemStyleData: const MenuItemStyleData(
-                height: 36,
-              ),
+                  ),
+                )
+                .toList(growable: false),
+            onChanged: enabled
+                ? (v) {
+                    if (v == null) return;
+                    modelFocusNode.unfocus();
+                    if (v != selectedModelKey) onSelectModel(v);
+                  }
+                : null,
+            dropdownStyleData: const DropdownStyleData(
+              maxHeight: 320,
+            ),
+            menuItemStyleData: const MenuItemStyleData(
+              height: 36,
             ),
           ),
         ),
+      );
+    }
+
+    return Row(
+      children: <Widget>[
+        SizedBox(
+          width: 54,
+          child: Text(
+            l10n.modelSelectLabel,
+            style: theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+        const SizedBox(width: 8),
+        Expanded(child: pickerChild),
       ],
     );
   }

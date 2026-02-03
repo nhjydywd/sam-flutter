@@ -13,6 +13,7 @@ import 'package:sam_flutter/main.dart';
 void main() {
   testWidgets('App boots', (WidgetTester tester) async {
     await tester.pumpWidget(const SamFlutterApp(locale: Locale('en')));
-    expect(find.text('Hello, world'), findsOneWidget);
+    expect(find.text('Choose file'), findsOneWidget);
+    expect(find.text('Choose folder'), findsOneWidget);
   });
 }
