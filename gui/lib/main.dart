@@ -1282,6 +1282,31 @@ class _HomePageState extends State<_HomePage> {
     return data.buffer.asUint8List();
   }
 
+  Future<Uint8List> _makeBinaryMaskPngFromAlpha(ui.Image maskAlpha) async {
+    final w = maskAlpha.width;
+    final h = maskAlpha.height;
+
+    final recorder = ui.PictureRecorder();
+    final canvas = ui.Canvas(recorder);
+    final rect = Rect.fromLTWH(0, 0, w.toDouble(), h.toDouble());
+
+    // Opaque black base.
+    canvas.drawRect(rect, Paint()..color = const Color(0xFF000000));
+
+    // Paint opaque white, then keep only where the mask alpha is present.
+    canvas.saveLayer(rect, Paint());
+    canvas.drawRect(rect, Paint()..color = const Color(0xFFFFFFFF));
+    canvas.drawImage(maskAlpha, Offset.zero, Paint()..blendMode = BlendMode.dstIn);
+    canvas.restore();
+
+    final pic = recorder.endRecording();
+    final out = await pic.toImage(w, h);
+    final data = await out.toByteData(format: ui.ImageByteFormat.png);
+    out.dispose();
+    if (data == null) throw StateError('failed to encode PNG');
+    return data.buffer.asUint8List();
+  }
+
   Future<void> _exportAllMasksAndSegments() async {
     if (_exporting) return;
     final l10n = AppLocalizations.of(context)!;
@@ -1300,19 +1325,18 @@ class _HomePageState extends State<_HomePage> {
       if (dirPath == null || dirPath.isEmpty) return;
       _exportLastDir = dirPath;
 
-      final outMasks = Directory('${dirPath}${Platform.pathSeparator}masks');
-      final outSegs = Directory('${dirPath}${Platform.pathSeparator}segments');
-      if (!outMasks.existsSync()) outMasks.createSync(recursive: true);
-      if (!outSegs.existsSync()) outSegs.createSync(recursive: true);
+      final outDir = Directory(dirPath);
+      if (!outDir.existsSync()) outDir.createSync(recursive: true);
 
       int exported = 0;
       int skipped = 0;
 
-      String uniquePngPath(Directory dir, String baseName) {
-        var candidate = '${dir.path}${Platform.pathSeparator}$baseName.png';
+      String uniquePngPath(String baseName) {
+        var candidate = '${outDir.path}${Platform.pathSeparator}$baseName.png';
         if (!File(candidate).existsSync()) return candidate;
         for (var i = 2; i < 10000; i++) {
-          candidate = '${dir.path}${Platform.pathSeparator}${baseName}_$i.png';
+          candidate =
+              '${outDir.path}${Platform.pathSeparator}${baseName}_$i.png';
           if (!File(candidate).existsSync()) return candidate;
         }
         throw StateError('too many conflicting filenames for $baseName');
@@ -1327,15 +1351,18 @@ class _HomePageState extends State<_HomePage> {
         }
 
         final base = _basenameNoExt(p);
-        final maskPath = uniquePngPath(outMasks, base);
-        await File(maskPath).writeAsBytes(maskBytes, flush: true);
-
         final imgBytes = await File(p).readAsBytes();
         final img = await _decodeUiImage(imgBytes);
         final mask = await _decodeUiImage(maskBytes);
         try {
+          // Mask: export as white(255)=foreground, black(0)=background.
+          final maskOutBytes = await _makeBinaryMaskPngFromAlpha(mask);
+          final maskPath = uniquePngPath('${base}_mask');
+          await File(maskPath).writeAsBytes(maskOutBytes, flush: true);
+
+          // Segment: keep original colors inside the mask.
           final segBytes = await _makeSegmentPng(image: img, maskAlpha: mask);
-          final segPath = uniquePngPath(outSegs, base);
+          final segPath = uniquePngPath('${base}_segment');
           await File(segPath).writeAsBytes(segBytes, flush: true);
         } finally {
           img.dispose();
