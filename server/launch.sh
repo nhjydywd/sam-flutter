@@ -71,9 +71,8 @@ PY
 ensure_sam2_tiny_model() {
   local out_dir="${ROOT}/models/sam2"
   local ckpt="${out_dir}/sam2.1_hiera_tiny.pt"
-  local cfg="${out_dir}/sam2.1_hiera_t.yaml"
 
-  if [[ -f "${ckpt}" && -s "${ckpt}" && -f "${cfg}" && -s "${cfg}" ]]; then
+  if [[ -f "${ckpt}" && -s "${ckpt}" ]]; then
     return
   fi
 

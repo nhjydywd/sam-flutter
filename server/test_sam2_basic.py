@@ -46,32 +46,43 @@ else:  # pragma: no cover
     _SAM2_IMPORT_ERROR = None
 
 
-def _discover_local_sam2_models(server_dir: Path) -> list[tuple[str, Path, Path]]:
+def _discover_local_sam2_models(server_dir: Path) -> list[tuple[str, str, Path]]:
     """
-    Returns a list of (key, cfg_path, checkpoint_path) for models that have both files present.
+    Returns a list of (key, config_name, checkpoint_path) for locally present checkpoints.
 
-    We only list locally usable pairs, so the selection UI can't produce an invalid config/ckpt combo.
+    NOTE: SAM2 uses Hydra and expects a *config name* (e.g. "configs/sam2.1/sam2.1_hiera_t.yaml")
+    rather than an absolute filesystem path. The configs ship inside the installed `sam2` package.
     """
     base = server_dir / "models" / "sam2"
-    candidates: list[tuple[str, Path, Path]] = [
-        ("sam2.1_hiera_tiny", base / "sam2.1_hiera_t.yaml", base / "sam2.1_hiera_tiny.pt"),
-        ("sam2.1_hiera_small", base / "sam2.1_hiera_s.yaml", base / "sam2.1_hiera_small.pt"),
-        ("sam2.1_hiera_base_plus", base / "sam2.1_hiera_b+.yaml", base / "sam2.1_hiera_base_plus.pt"),
-        ("sam2.1_hiera_large", base / "sam2.1_hiera_l.yaml", base / "sam2.1_hiera_large.pt"),
+    candidates: list[tuple[str, str, Path]] = [
+        ("sam2.1_hiera_tiny", "configs/sam2.1/sam2.1_hiera_t.yaml", base / "sam2.1_hiera_tiny.pt"),
+        ("sam2.1_hiera_small", "configs/sam2.1/sam2.1_hiera_s.yaml", base / "sam2.1_hiera_small.pt"),
+        ("sam2.1_hiera_base_plus", "configs/sam2.1/sam2.1_hiera_b+.yaml", base / "sam2.1_hiera_base_plus.pt"),
+        ("sam2.1_hiera_large", "configs/sam2.1/sam2.1_hiera_l.yaml", base / "sam2.1_hiera_large.pt"),
     ]
 
-    usable: list[tuple[str, Path, Path]] = []
-    for key, cfg, ckpt in candidates:
-        if cfg.is_file() and ckpt.is_file() and ckpt.stat().st_size > 0:
-            usable.append((key, cfg, ckpt))
+    usable: list[tuple[str, str, Path]] = []
+    for key, cfg_name, ckpt in candidates:
+        if ckpt.is_file() and ckpt.stat().st_size > 0:
+            usable.append((key, cfg_name, ckpt))
     return usable
 
 
-def _prompt_select_model(models: list[tuple[str, Path, Path]]) -> tuple[str, str]:
+def _prompt_select_model(models: list[tuple[str, str, Path]]) -> tuple[str, str, str]:
+    """
+    Returns (model_key, config_name, checkpoint_path).
+
+    If exactly one model is available locally, auto-select it (no prompt).
+    """
+    if len(models) == 1:
+        key, cfg_name, ckpt = models[0]
+        print(f"Using the only available SAM2 model: {key} (cfg={cfg_name}, ckpt={ckpt.name})")
+        return key, cfg_name, str(ckpt)
+
     print("Available SAM2 models:")
-    for i, (key, cfg, ckpt) in enumerate(models, start=1):
+    for i, (key, cfg_name, ckpt) in enumerate(models, start=1):
         size_mb = ckpt.stat().st_size / (1024 * 1024)
-        print(f"  [{i}] {key}  ({size_mb:.1f}MB)  cfg={cfg.name}  ckpt={ckpt.name}")
+        print(f"  [{i}] {key}  ({size_mb:.1f}MB)  cfg={cfg_name}  ckpt={ckpt.name}")
 
     while True:
         raw = input("Select a model index (default 1), or 'q' to quit: ").strip()
@@ -86,8 +97,17 @@ def _prompt_select_model(models: list[tuple[str, Path, Path]]) -> tuple[str, str
                 break
         print("Invalid selection.")
 
-    _key, cfg, ckpt = models[idx - 1]
-    return str(cfg), str(ckpt)
+    key, cfg_name, ckpt = models[idx - 1]
+    print(f"Using SAM2 model: {key} (cfg={cfg_name}, ckpt={ckpt.name})")
+    return key, cfg_name, str(ckpt)
+
+
+def _infer_model_key(server_dir: Path, model_cfg: str, checkpoint: str) -> str:
+    ckpt_p = Path(checkpoint).resolve()
+    for key, cfg, ckpt in _discover_local_sam2_models(server_dir):
+        if cfg == model_cfg and ckpt.resolve() == ckpt_p:
+            return key
+    return "custom"
 
 
 def _best_device(requested: str) -> str:
@@ -224,7 +244,11 @@ def _run_predict(
 
 def main() -> int:
     p = argparse.ArgumentParser()
-    p.add_argument("--model-cfg", required=False, help="Path to SAM2 model config yaml.")
+    p.add_argument(
+        "--model-cfg",
+        required=False,
+        help="SAM2 Hydra config name (e.g. 'configs/sam2.1/sam2.1_hiera_t.yaml').",
+    )
     p.add_argument("--checkpoint", required=False, help="Path to SAM2 checkpoint (.pt).")
     p.add_argument("--image", required=False, help="Path to an input image. If omitted, uses a synthetic image.")
     p.add_argument(
@@ -251,23 +275,25 @@ def main() -> int:
         local_models = _discover_local_sam2_models(server_dir)
         if not local_models:
             raise SystemExit(
-                "No usable SAM2 models found under server/models/sam2 (need BOTH cfg yaml + checkpoint).\n"
+                "No usable SAM2 models found under server/models/sam2 (need the checkpoint .pt).\n"
                 "Quick start:\n"
                 "  ./server/download_sam2_tiny.sh\n"
                 "Or manage downloads:\n"
                 "  python3 server/manage_model.py\n"
                 "Expected example paths:\n"
-                "  server/models/sam2/sam2.1_hiera_t.yaml\n"
                 "  server/models/sam2/sam2.1_hiera_tiny.pt"
             )
-        model_cfg, checkpoint = _prompt_select_model(local_models)
+        model_key, model_cfg, checkpoint = _prompt_select_model(local_models)
+    else:
+        server_dir = Path(__file__).resolve().parent
+        model_key = _infer_model_key(server_dir, model_cfg, checkpoint)
+        print(f"Using SAM2 model: {model_key}")
 
     if not model_cfg or not checkpoint:
         raise SystemExit(
             "Missing --model-cfg/--checkpoint (or env SAM2_MODEL_CFG/SAM2_CHECKPOINT).\n"
-            "Tip: for a small model, use the 'sam2.1_hiera_t' config + 'sam2.1_hiera_tiny.pt' checkpoint.\n"
+            "Tip: for a small model, use config 'configs/sam2.1/sam2.1_hiera_t.yaml' + 'sam2.1_hiera_tiny.pt' checkpoint.\n"
             "If you downloaded them into this repo, put them at:\n"
-            "  server/models/sam2/sam2.1_hiera_t.yaml\n"
             "  server/models/sam2/sam2.1_hiera_tiny.pt"
         )
 
@@ -314,6 +340,7 @@ def main() -> int:
 
     area = float(np.sum(best_mask > 0))
     print("SAM2 smoke test OK")
+    print(f"  model_key:   {model_key}")
     print(f"  device:      {device}")
     print(f"  model_cfg:   {model_cfg}")
     print(f"  checkpoint:  {checkpoint}")
