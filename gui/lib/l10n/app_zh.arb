@@ -25,10 +25,56 @@
   "statusDeviceLabel": "设备",
   "statusSessionsLabel": "会话数",
   "statusServerOkLabel": "服务正常",
+  "unknownError": "未知错误",
+  "embeddingNotConnected": "未连接",
+  "embeddingStatusIdle": "Embedding：空闲",
+  "embeddingStatusComputing": "Embedding：计算中…",
+  "embeddingStatusReady": "Embedding：就绪（{ms} ms）",
+  "embeddingStatusError": "Embedding：错误：{error}",
+  "promptsSummary": "提示点：+{pos} -{neg}",
+  "predicting": "正在预测…",
+  "maskSummary": "Mask：面积 {area}  得分 {score}  （{ms} ms）",
   "@statusErrorPrefix": {
     "placeholders": {
       "error": {
         "type": "String"
+      }
+    }
+  },
+  "@embeddingStatusReady": {
+    "placeholders": {
+      "ms": {
+        "type": "int"
+      }
+    }
+  },
+  "@embeddingStatusError": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "@promptsSummary": {
+    "placeholders": {
+      "pos": {
+        "type": "int"
+      },
+      "neg": {
+        "type": "int"
+      }
+    }
+  },
+  "@maskSummary": {
+    "placeholders": {
+      "area": {
+        "type": "int"
+      },
+      "score": {
+        "type": "String"
+      },
+      "ms": {
+        "type": "int"
       }
     }
   },

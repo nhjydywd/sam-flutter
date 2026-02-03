@@ -82,4 +82,3 @@ class _DragDividerState extends State<DragDivider> {
     );
   }
 }
-

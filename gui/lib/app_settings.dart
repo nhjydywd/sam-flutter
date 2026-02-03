@@ -22,7 +22,8 @@ class _AppSettingsData {
 
   _AppSettingsData();
 
-  factory _AppSettingsData.fromJson(Map<String, dynamic> json) => _$AppSettingsDataFromJson(json);
+  factory _AppSettingsData.fromJson(Map<String, dynamic> json) =>
+      _$AppSettingsDataFromJson(json);
   Map<String, dynamic> toJson() => _$AppSettingsDataToJson(this);
 }
 
@@ -83,7 +84,8 @@ class AppSettings extends ChangeNotifier {
       return dir;
     } catch (_) {
       // In widget tests, platform plugins may be unavailable. Fall back to a temp dir.
-      final dir = Directory('${Directory.systemTemp.path}${Platform.pathSeparator}sam_flutter');
+      final dir = Directory(
+          '${Directory.systemTemp.path}${Platform.pathSeparator}sam_flutter');
       if (!await dir.exists()) {
         await dir.create(recursive: true);
       }

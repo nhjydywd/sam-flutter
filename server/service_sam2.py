@@ -81,7 +81,7 @@ class PredictResponse(BaseModel):
     session_id: str
     score: float
     mask_area: int
-    mask_png_base64: str = Field(..., description="PNG-encoded 8-bit mask (0/255) in base64")
+    mask_png_base64: str = Field(..., description="PNG-encoded RGBA mask (alpha=0/255) in base64")
     elapsed_ms: float
 
 
@@ -283,10 +283,16 @@ class SessionManager:
 
         mask_area = int(np.sum(best_mask > 0))
 
-        # PNG encode mask (0/255).
+        # PNG encode mask as an RGBA alpha mask:
+        # - RGB is white
+        # - Alpha is 0/255 for background/foreground
+        # This makes client-side compositing easy (dstIn).
         m8 = (best_mask.astype(np.uint8) * 255) if best_mask.dtype != np.uint8 else best_mask
         out = BytesIO()
-        Image.fromarray(m8).save(out, format="PNG")
+        alpha = Image.fromarray(m8, mode="L")
+        rgba = Image.new("RGBA", alpha.size, (255, 255, 255, 0))
+        rgba.putalpha(alpha)
+        rgba.save(out, format="PNG")
         b64 = base64.b64encode(out.getvalue()).decode("ascii")
 
         return PredictResponse(

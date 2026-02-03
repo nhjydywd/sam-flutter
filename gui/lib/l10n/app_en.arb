@@ -25,10 +25,56 @@
   "statusDeviceLabel": "Device",
   "statusSessionsLabel": "Sessions",
   "statusServerOkLabel": "Server ok",
+  "unknownError": "Unknown error",
+  "embeddingNotConnected": "Not connected",
+  "embeddingStatusIdle": "Embedding: idle",
+  "embeddingStatusComputing": "Embedding: computing…",
+  "embeddingStatusReady": "Embedding: ready ({ms} ms)",
+  "embeddingStatusError": "Embedding: error: {error}",
+  "promptsSummary": "Prompts: +{pos} -{neg}",
+  "predicting": "Predicting…",
+  "maskSummary": "Mask: area {area}  score {score}  ({ms} ms)",
   "@statusErrorPrefix": {
     "placeholders": {
       "error": {
         "type": "String"
+      }
+    }
+  },
+  "@embeddingStatusReady": {
+    "placeholders": {
+      "ms": {
+        "type": "int"
+      }
+    }
+  },
+  "@embeddingStatusError": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "@promptsSummary": {
+    "placeholders": {
+      "pos": {
+        "type": "int"
+      },
+      "neg": {
+        "type": "int"
+      }
+    }
+  },
+  "@maskSummary": {
+    "placeholders": {
+      "area": {
+        "type": "int"
+      },
+      "score": {
+        "type": "String"
+      },
+      "ms": {
+        "type": "int"
       }
     }
   },

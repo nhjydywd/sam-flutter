@@ -1,5 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
+import 'dart:ui' as ui;
 
 import 'package:desktop_drop/desktop_drop.dart';
 import 'package:dropdown_button2/dropdown_button2.dart';
@@ -10,6 +12,7 @@ import 'package:flutter_gen/gen_l10n/app_localizations.dart';
 
 import 'app_settings.dart';
 import 'widgets/drag_divider.dart';
+import 'widgets/segmentation_preview.dart';
 
 void main() {
   runApp(const SamFlutterApp());
@@ -50,6 +53,8 @@ class _HomePage extends StatefulWidget {
 
 enum _ConnState { disconnected, connecting, connected }
 
+enum _EmbeddingState { idle, computing, ready, error }
+
 class _HomePageState extends State<_HomePage> {
   late final AppSettings _settings;
   final TextEditingController _serverCtrl = TextEditingController();
@@ -73,6 +78,23 @@ class _HomePageState extends State<_HomePage> {
   String? _lastPickDir;
   final List<String> _imagePaths = <String>[];
   int _selectedImageIndex = -1;
+  String? _activeImagePath;
+  ui.Image? _activeUiImage;
+  ui.Image? _activeMaskAlpha;
+  final List<PromptPoint> _promptPoints = <PromptPoint>[];
+  String? _sessionId;
+  bool _creatingSession = false;
+  _EmbeddingState _embeddingState = _EmbeddingState.idle;
+  String? _embeddingError;
+  double? _embeddingElapsedMs;
+  int? _serverImageWidth;
+  int? _serverImageHeight;
+  bool _predicting = false;
+  String? _predictError;
+  double? _predictScore;
+  int? _predictMaskArea;
+  double? _predictElapsedMs;
+  int _embedRequestToken = 0;
   double _leftListWidth = 260.0;
   static const double _rightExpandedWidth = 320.0;
   static const double _rightCollapsedWidth = 24.0;
@@ -194,12 +216,19 @@ class _HomePageState extends State<_HomePage> {
     final existing = _imagePaths.toSet();
     final toAdd = images.where(existing.add).toList(growable: false);
     if (toAdd.isEmpty) return;
+    final shouldAutoSelect = _selectedImageIndex < 0;
     setState(() {
       _imagePaths.addAll(toAdd);
       if (_selectedImageIndex < 0 && _imagePaths.isNotEmpty) {
         _selectedImageIndex = 0;
       }
     });
+    if (shouldAutoSelect && _imagePaths.isNotEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _selectImageIndex(0);
+      });
+    }
   }
 
   @override
@@ -232,6 +261,8 @@ class _HomePageState extends State<_HomePage> {
     _settings.removeListener(_onSettingsChanged);
     _serverCtrl.dispose();
     _modelFocusNode.dispose();
+    _activeUiImage?.dispose();
+    _activeMaskAlpha?.dispose();
     super.dispose();
   }
 
@@ -246,6 +277,18 @@ class _HomePageState extends State<_HomePage> {
       _selectedModelKey = null;
       _settingModel = false;
       _modelError = null;
+      _sessionId = null;
+      _embeddingState = _EmbeddingState.idle;
+      _embeddingError = null;
+      _embeddingElapsedMs = null;
+      _serverImageWidth = null;
+      _serverImageHeight = null;
+      _predictError = null;
+      _predictScore = null;
+      _predictMaskArea = null;
+      _predictElapsedMs = null;
+      _activeMaskAlpha = null;
+      _promptPoints.clear();
     });
 
     final base = _serverCtrl.text.trim();
@@ -418,10 +461,34 @@ class _HomePageState extends State<_HomePage> {
         setState(() {
           _health = Map<String, dynamic>.from(health);
           _selectedModelKey = modelKey;
+          _sessionId = null; // server clears sessions on model switch
+          _embeddingState = _EmbeddingState.idle;
+          _embeddingError = null;
+          _embeddingElapsedMs = null;
+          _serverImageWidth = null;
+          _serverImageHeight = null;
+          _predictError = null;
+          _predictScore = null;
+          _predictMaskArea = null;
+          _predictElapsedMs = null;
+          _activeMaskAlpha = null;
+          _promptPoints.clear();
         });
       } else {
         setState(() {
           _selectedModelKey = modelKey;
+          _sessionId = null; // server clears sessions on model switch
+          _embeddingState = _EmbeddingState.idle;
+          _embeddingError = null;
+          _embeddingElapsedMs = null;
+          _serverImageWidth = null;
+          _serverImageHeight = null;
+          _predictError = null;
+          _predictScore = null;
+          _predictMaskArea = null;
+          _predictElapsedMs = null;
+          _activeMaskAlpha = null;
+          _promptPoints.clear();
         });
       }
       _settings.modelKey = modelKey;
@@ -453,6 +520,281 @@ class _HomePageState extends State<_HomePage> {
       }
     }
     return cur;
+  }
+
+  Future<ui.Image> _decodeUiImage(Uint8List bytes) async {
+    final codec = await ui.instantiateImageCodec(bytes);
+    final frame = await codec.getNextFrame();
+    return frame.image;
+  }
+
+  Future<String> _ensureSession() async {
+    final base = _baseUri;
+    if (base == null || _connState != _ConnState.connected) {
+      throw StateError('not connected');
+    }
+    final sid = _sessionId;
+    if (sid != null && sid.isNotEmpty) return sid;
+    if (_creatingSession) throw StateError('creating session');
+    setState(() {
+      _creatingSession = true;
+    });
+    try {
+      final created = await _httpPostJson(
+          base.replace(path: '/sessions'), <String, Object?>{});
+      if (created is! Map) throw StateError('invalid /sessions response');
+      final m = Map<String, dynamic>.from(created);
+      final newSid = m['session_id']?.toString() ?? '';
+      if (newSid.isEmpty) throw StateError('missing session_id');
+      setState(() {
+        _sessionId = newSid;
+      });
+      return newSid;
+    } finally {
+      setState(() {
+        _creatingSession = false;
+      });
+    }
+  }
+
+  Future<Object?> _httpPostMultipartBytes(
+    Uri uri, {
+    required Uint8List bytes,
+    required String filename,
+    String fieldName = 'file',
+  }) async {
+    final httpClient = HttpClient();
+    final boundary = '----samflutter-${DateTime.now().microsecondsSinceEpoch}';
+    try {
+      final req = await httpClient.postUrl(uri);
+      req.headers.set(HttpHeaders.acceptHeader, 'application/json');
+      req.headers.set(
+        HttpHeaders.contentTypeHeader,
+        'multipart/form-data; boundary=$boundary',
+      );
+
+      void writeString(String s) => req.add(utf8.encode(s));
+
+      writeString('--$boundary\r\n');
+      writeString(
+        'Content-Disposition: form-data; name="$fieldName"; filename="$filename"\r\n',
+      );
+      writeString('Content-Type: application/octet-stream\r\n\r\n');
+      req.add(bytes);
+      writeString('\r\n--$boundary--\r\n');
+
+      final resp = await req.close();
+      final body = await utf8.decoder.bind(resp).join();
+      if (resp.statusCode < 200 || resp.statusCode >= 300) {
+        throw HttpException('HTTP ${resp.statusCode}: $body', uri: uri);
+      }
+      return jsonDecode(body);
+    } finally {
+      httpClient.close(force: true);
+    }
+  }
+
+  Future<void> _computeEmbeddingForSelection({
+    required String imagePath,
+    required Uint8List imageBytes,
+    required int requestToken,
+  }) async {
+    final l10n = AppLocalizations.of(context)!;
+    if (_connState != _ConnState.connected || _baseUri == null) {
+      setState(() {
+        _embeddingState = _EmbeddingState.error;
+        _embeddingError = l10n.embeddingNotConnected;
+      });
+      return;
+    }
+
+    setState(() {
+      _embeddingState = _EmbeddingState.computing;
+      _embeddingError = null;
+      _embeddingElapsedMs = null;
+      _serverImageWidth = null;
+      _serverImageHeight = null;
+      _predictError = null;
+      _predictScore = null;
+      _predictMaskArea = null;
+      _predictElapsedMs = null;
+      _activeMaskAlpha = null;
+      _promptPoints.clear();
+    });
+
+    final base = _baseUri!;
+    String sid = await _ensureSession();
+
+    Future<Map<String, dynamic>> doUpload(String sid) async {
+      final parsed = await _httpPostMultipartBytes(
+        base.replace(path: '/sessions/$sid/image'),
+        bytes: imageBytes,
+        filename: _basename(imagePath),
+      );
+      if (parsed is! Map)
+        throw StateError('invalid /sessions/{id}/image response');
+      return Map<String, dynamic>.from(parsed);
+    }
+
+    try {
+      Map<String, dynamic> imgResp;
+      try {
+        imgResp = await doUpload(sid);
+      } on HttpException catch (e) {
+        // Model switches clear sessions; retry once with a fresh session.
+        if (e.message.contains('HTTP 404')) {
+          setState(() {
+            _sessionId = null;
+          });
+          sid = await _ensureSession();
+          imgResp = await doUpload(sid);
+        } else {
+          rethrow;
+        }
+      }
+
+      if (requestToken != _embedRequestToken) return;
+
+      setState(() {
+        _embeddingState = _EmbeddingState.ready;
+        _embeddingElapsedMs = (imgResp['elapsed_ms'] is num)
+            ? (imgResp['elapsed_ms'] as num).toDouble()
+            : null;
+        _serverImageWidth = (imgResp['width'] is num)
+            ? (imgResp['width'] as num).toInt()
+            : null;
+        _serverImageHeight = (imgResp['height'] is num)
+            ? (imgResp['height'] as num).toInt()
+            : null;
+      });
+    } catch (e) {
+      if (requestToken != _embedRequestToken) return;
+      setState(() {
+        _embeddingState = _EmbeddingState.error;
+        _embeddingError = e.toString();
+      });
+    }
+  }
+
+  Future<void> _runPredict() async {
+    if (_predicting) return;
+    if (_embeddingState != _EmbeddingState.ready) return;
+    final base = _baseUri;
+    if (base == null || _connState != _ConnState.connected) return;
+    final sid = _sessionId;
+    if (sid == null || sid.isEmpty) return;
+    if (_promptPoints.isEmpty) return;
+    final token = _embedRequestToken;
+    final path = _activeImagePath;
+
+    setState(() {
+      _predicting = true;
+      _predictError = null;
+    });
+    try {
+      final pts = _promptPoints.map((p) => <double>[p.x, p.y]).toList();
+      final lbs = _promptPoints.map((p) => p.label).toList();
+      final parsed = await _httpPostJson(
+        base.replace(path: '/sessions/$sid/predict'),
+        <String, Object?>{
+          'points': pts,
+          'labels': lbs,
+          'multimask': false,
+          'return_format': 'png_base64',
+        },
+      );
+      if (parsed is! Map) throw StateError('invalid /predict response');
+      final m = Map<String, dynamic>.from(parsed);
+      final b64 = m['mask_png_base64']?.toString() ?? '';
+      if (b64.isEmpty) throw StateError('missing mask_png_base64');
+      final bytes = base64Decode(b64);
+      final maskImg = await _decodeUiImage(Uint8List.fromList(bytes));
+
+      if (token != _embedRequestToken || path != _activeImagePath) {
+        maskImg.dispose();
+        return;
+      }
+
+      setState(() {
+        final old = _activeMaskAlpha;
+        _activeMaskAlpha = maskImg;
+        _predictScore =
+            (m['score'] is num) ? (m['score'] as num).toDouble() : null;
+        _predictMaskArea =
+            (m['mask_area'] is num) ? (m['mask_area'] as num).toInt() : null;
+        _predictElapsedMs = (m['elapsed_ms'] is num)
+            ? (m['elapsed_ms'] as num).toDouble()
+            : null;
+        old?.dispose();
+      });
+    } catch (e) {
+      setState(() {
+        _predictError = e.toString();
+      });
+    } finally {
+      setState(() {
+        _predicting = false;
+      });
+    }
+  }
+
+  Future<void> _selectImageIndex(int index) async {
+    if (index < 0 || index >= _imagePaths.length) return;
+    final path = _imagePaths[index];
+    final token = ++_embedRequestToken;
+    final oldImg = _activeUiImage;
+    final oldMask = _activeMaskAlpha;
+    setState(() {
+      _selectedImageIndex = index;
+      _activeImagePath = path;
+      _activeUiImage = null;
+      _activeMaskAlpha = null;
+      _promptPoints.clear();
+      _embeddingState = _EmbeddingState.idle;
+      _embeddingError = null;
+      _embeddingElapsedMs = null;
+      _serverImageWidth = null;
+      _serverImageHeight = null;
+      _predictError = null;
+      _predictScore = null;
+      _predictMaskArea = null;
+      _predictElapsedMs = null;
+    });
+    oldImg?.dispose();
+    oldMask?.dispose();
+
+    Uint8List bytes;
+    try {
+      bytes = await File(path).readAsBytes();
+    } catch (e) {
+      if (token != _embedRequestToken) return;
+      setState(() {
+        _embeddingState = _EmbeddingState.error;
+        _embeddingError = e.toString();
+      });
+      return;
+    }
+
+    try {
+      final img = await _decodeUiImage(bytes);
+      if (token != _embedRequestToken) return;
+      setState(() {
+        _activeUiImage = img;
+      });
+    } catch (e) {
+      if (token != _embedRequestToken) return;
+      setState(() {
+        _embeddingState = _EmbeddingState.error;
+        _embeddingError = e.toString();
+      });
+      return;
+    }
+
+    await _computeEmbeddingForSelection(
+      imagePath: path,
+      imageBytes: bytes,
+      requestToken: token,
+    );
   }
 
   Future<void> _chooseFile() async {
@@ -629,8 +971,9 @@ class _HomePageState extends State<_HomePage> {
                                                     .primaryContainer
                                                 : Colors.transparent,
                                             child: InkWell(
-                                              onTap: () => setState(() =>
-                                                  _selectedImageIndex = index),
+                                              onTap: () {
+                                                _selectImageIndex(index);
+                                              },
                                               child: Padding(
                                                 padding:
                                                     const EdgeInsets.symmetric(
@@ -679,25 +1022,64 @@ class _HomePageState extends State<_HomePage> {
                               ? Container(
                                   color: Theme.of(context).colorScheme.surface,
                                   alignment: Alignment.center,
-                                  child: Padding(
-                                    padding: const EdgeInsets.all(16),
-                                    child: Image.file(
-                                      File(selectedImagePath),
-                                      fit: BoxFit.contain,
-                                      errorBuilder: (context, error, stack) {
-                                        return Text(
-                                          l10n.statusErrorPrefix(
-                                              error.toString()),
-                                          style: TextStyle(
-                                              color: Theme.of(context)
-                                                  .colorScheme
-                                                  .error),
-                                          maxLines: 3,
-                                          overflow: TextOverflow.ellipsis,
-                                          textAlign: TextAlign.center,
-                                        );
-                                      },
-                                    ),
+                                  child: Column(
+                                    children: <Widget>[
+                                      Expanded(
+                                        child: Padding(
+                                          padding: const EdgeInsets.all(16),
+                                          child: Builder(
+                                            builder: (context) {
+                                              final activeOk =
+                                                  _activeImagePath ==
+                                                      selectedImagePath;
+                                              final img = activeOk
+                                                  ? _activeUiImage
+                                                  : null;
+                                              final mask = activeOk
+                                                  ? _activeMaskAlpha
+                                                  : null;
+                                              if (img == null) {
+                                                return const Center(
+                                                  child:
+                                                      CircularProgressIndicator(),
+                                                );
+                                              }
+                                              return SegmentationPreview(
+                                                image: img,
+                                                maskAlpha: mask,
+                                                points: _promptPoints,
+                                                onAddPoint: (pt) {
+                                                  if (_embeddingState !=
+                                                      _EmbeddingState.ready) {
+                                                    return;
+                                                  }
+                                                  setState(() {
+                                                    _promptPoints.add(pt);
+                                                  });
+                                                  _runPredict();
+                                                },
+                                              );
+                                            },
+                                          ),
+                                        ),
+                                      ),
+                                      Padding(
+                                        padding: const EdgeInsets.fromLTRB(
+                                            16, 0, 16, 12),
+                                        child: _ImageStatusBar(
+                                          embeddingState: _embeddingState,
+                                          embeddingError: _embeddingError,
+                                          embeddingElapsedMs:
+                                              _embeddingElapsedMs,
+                                          promptPoints: _promptPoints,
+                                          predicting: _predicting,
+                                          predictError: _predictError,
+                                          predictScore: _predictScore,
+                                          predictMaskArea: _predictMaskArea,
+                                          predictElapsedMs: _predictElapsedMs,
+                                        ),
+                                      ),
+                                    ],
                                   ),
                                 )
                               : Center(
@@ -832,6 +1214,108 @@ class _HomePageState extends State<_HomePage> {
             ),
         ],
       ),
+    );
+  }
+}
+
+class _ImageStatusBar extends StatelessWidget {
+  const _ImageStatusBar({
+    required this.embeddingState,
+    required this.embeddingError,
+    required this.embeddingElapsedMs,
+    required this.promptPoints,
+    required this.predicting,
+    required this.predictError,
+    required this.predictScore,
+    required this.predictMaskArea,
+    required this.predictElapsedMs,
+  });
+
+  final _EmbeddingState embeddingState;
+  final String? embeddingError;
+  final double? embeddingElapsedMs;
+  final List<PromptPoint> promptPoints;
+  final bool predicting;
+  final String? predictError;
+  final double? predictScore;
+  final int? predictMaskArea;
+  final double? predictElapsedMs;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final theme = Theme.of(context);
+
+    final pos = promptPoints.where((p) => p.label == 1).length;
+    final neg = promptPoints.where((p) => p.label == 0).length;
+
+    String embedText;
+    TextStyle? embedStyle;
+    switch (embeddingState) {
+      case _EmbeddingState.idle:
+        embedText = l10n.embeddingStatusIdle;
+        break;
+      case _EmbeddingState.computing:
+        embedText = l10n.embeddingStatusComputing;
+        break;
+      case _EmbeddingState.ready:
+        embedText = l10n.embeddingStatusReady(
+          (embeddingElapsedMs ?? 0).round(),
+        );
+        break;
+      case _EmbeddingState.error:
+        embedText = l10n.embeddingStatusError(
+            embeddingError?.trim().isNotEmpty == true
+                ? embeddingError!
+                : l10n.unknownError);
+        embedStyle = TextStyle(color: theme.colorScheme.error);
+        break;
+    }
+
+    final promptText = l10n.promptsSummary(pos, neg);
+
+    String? predictText;
+    TextStyle? predictStyle;
+    if (predicting) {
+      predictText = l10n.predicting;
+    } else if (predictError != null && predictError!.trim().isNotEmpty) {
+      predictText = l10n.statusErrorPrefix(predictError!);
+      predictStyle = TextStyle(color: theme.colorScheme.error);
+    } else if (predictMaskArea != null || predictScore != null) {
+      predictText = l10n.maskSummary(
+        predictMaskArea ?? 0,
+        (predictScore ?? 0).toStringAsFixed(4),
+        (predictElapsedMs ?? 0).round(),
+      );
+    }
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: <Widget>[
+        Text(
+          embedText,
+          style: embedStyle,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          textAlign: TextAlign.center,
+        ),
+        const SizedBox(height: 6),
+        Wrap(
+          alignment: WrapAlignment.center,
+          spacing: 12,
+          runSpacing: 6,
+          children: <Widget>[
+            Text(promptText, maxLines: 1, overflow: TextOverflow.ellipsis),
+            if (predictText != null)
+              Text(
+                predictText,
+                style: predictStyle,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+          ],
+        ),
+      ],
     );
   }
 }
