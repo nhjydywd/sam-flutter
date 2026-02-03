@@ -35,6 +35,7 @@
   "predicting": "正在预测…",
   "maskSummary": "Mask：面积 {area}  得分 {score}  （{ms} ms）",
   "maskNotComputed": "Mask：未计算",
+  "clearPrompts": "清空提示",
   "@statusErrorPrefix": {
     "placeholders": {
       "error": {

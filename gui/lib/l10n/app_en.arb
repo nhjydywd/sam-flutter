@@ -35,6 +35,7 @@
   "predicting": "Predicting…",
   "maskSummary": "Mask: area {area}  score {score}  ({ms} ms)",
   "maskNotComputed": "Mask: not computed",
+  "clearPrompts": "Clear prompts",
   "@statusErrorPrefix": {
     "placeholders": {
       "error": {

@@ -80,7 +80,8 @@ class SegmentationPreview extends StatelessWidget {
     this.maskAlpha,
     this.points = const <PromptPoint>[],
     this.onAddPoint,
-    this.dimFactor = 0.05,
+    // Outside-mask brightness multiplier. 0=black, 1=no dim.
+    this.dimFactor = 0.35,
   });
 
   final ui.Image image;
@@ -171,7 +172,17 @@ class _SegmentationPainter extends CustomPainter {
     // 1) Base image.
     canvas.drawImageRect(image, src, dest, Paint());
 
-    // 2) Blacken the background outside the mask.
+    // 2) Dim the whole image, and if a mask exists, "punch out" the masked
+    // region so it stays at original brightness.
+    final layerRect = dest.inflate(1);
+    canvas.saveLayer(layerRect, Paint());
+
+    final overlayAlpha = (1.0 - dimFactor).clamp(0.0, 1.0);
+    canvas.drawRect(
+      dest,
+      Paint()..color = Colors.black.withValues(alpha: overlayAlpha),
+    );
+
     final mask = maskAlpha;
     if (mask != null) {
       final maskSrc = Rect.fromLTWH(
@@ -180,25 +191,15 @@ class _SegmentationPainter extends CustomPainter {
         mask.width.toDouble(),
         mask.height.toDouble(),
       );
-
-      // Draw the dark overlay into a layer, then "punch out" the mask region.
-      // This yields: inside mask = original; outside mask = darker.
-      final layerRect = dest.inflate(1);
-      canvas.saveLayer(layerRect, Paint());
-
-      final overlayAlpha = (1.0 - dimFactor).clamp(0.0, 1.0);
-      canvas.drawRect(
-        dest,
-        Paint()..color = Colors.black.withValues(alpha: overlayAlpha),
-      );
       canvas.drawImageRect(
         mask,
         maskSrc,
         dest,
         Paint()..blendMode = BlendMode.dstOut,
       );
-      canvas.restore();
     }
+
+    canvas.restore();
 
     // 3) Prompt points.
     if (points.isNotEmpty) {

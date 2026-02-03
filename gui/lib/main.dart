@@ -323,6 +323,7 @@ class _HomePageState extends State<_HomePage> {
       });
 
       await _refreshModels();
+      await _ensureEmbeddingForCurrentSelection();
     } catch (e) {
       setState(() {
         _connState = _ConnState.disconnected;
@@ -492,6 +493,7 @@ class _HomePageState extends State<_HomePage> {
         });
       }
       _settings.modelKey = modelKey;
+      await _ensureEmbeddingForCurrentSelection();
     } catch (e) {
       setState(() {
         _modelError = e.toString();
@@ -520,6 +522,24 @@ class _HomePageState extends State<_HomePage> {
       }
     }
     return cur;
+  }
+
+  Future<void> _ensureEmbeddingForCurrentSelection() async {
+    if (!mounted) return;
+    if (_connState != _ConnState.connected || _baseUri == null) return;
+    if (_imagePaths.isEmpty) return;
+    if (_selectedImageIndex < 0 || _selectedImageIndex >= _imagePaths.length) {
+      return;
+    }
+
+    final path = _imagePaths[_selectedImageIndex];
+    final activeOk = _activeImagePath == path && _activeUiImage != null;
+    final need = _embeddingState != _EmbeddingState.ready ||
+        _sessionId == null ||
+        !activeOk;
+    if (!need) return;
+
+    await _selectImageIndex(_selectedImageIndex);
   }
 
   Future<ui.Image> _decodeUiImage(Uint8List bytes) async {
@@ -988,8 +1008,6 @@ class _HomePageState extends State<_HomePage> {
                                                         vertical: 8),
                                                 child: Row(
                                                   children: <Widget>[
-                                                    Text('${index + 1}.'),
-                                                    const SizedBox(width: 8),
                                                     Expanded(
                                                       child: Text(
                                                         _basename(p),
@@ -1079,13 +1097,18 @@ class _HomePageState extends State<_HomePage> {
                                           embeddingError: _embeddingError,
                                           embeddingElapsedMs:
                                               _embeddingElapsedMs,
-                                          hasPrompts: _promptPoints.isNotEmpty,
-                                          hasMask: _activeMaskAlpha != null,
-                                          predicting: _predicting,
-                                          predictError: _predictError,
-                                          predictScore: _predictScore,
-                                          predictMaskArea: _predictMaskArea,
-                                          predictElapsedMs: _predictElapsedMs,
+                                          onClearPrompts: () {
+                                            setState(() {
+                                              _promptPoints.clear();
+                                              _predictError = null;
+                                              _predictScore = null;
+                                              _predictMaskArea = null;
+                                              _predictElapsedMs = null;
+                                              final old = _activeMaskAlpha;
+                                              _activeMaskAlpha = null;
+                                              old?.dispose();
+                                            });
+                                          },
                                         ),
                                       ),
                                     ],
@@ -1232,25 +1255,13 @@ class _ImageStatusBar extends StatelessWidget {
     required this.embeddingState,
     required this.embeddingError,
     required this.embeddingElapsedMs,
-    required this.hasPrompts,
-    required this.hasMask,
-    required this.predicting,
-    required this.predictError,
-    required this.predictScore,
-    required this.predictMaskArea,
-    required this.predictElapsedMs,
+    required this.onClearPrompts,
   });
 
   final _EmbeddingState embeddingState;
   final String? embeddingError;
   final double? embeddingElapsedMs;
-  final bool hasPrompts;
-  final bool hasMask;
-  final bool predicting;
-  final String? predictError;
-  final double? predictScore;
-  final int? predictMaskArea;
-  final double? predictElapsedMs;
+  final VoidCallback onClearPrompts;
 
   @override
   Widget build(BuildContext context) {
@@ -1280,23 +1291,6 @@ class _ImageStatusBar extends StatelessWidget {
         break;
     }
 
-    String? predictText;
-    TextStyle? predictStyle;
-    if (predicting) {
-      predictText = l10n.predicting;
-    } else if (predictError != null && predictError!.trim().isNotEmpty) {
-      predictText = l10n.statusErrorPrefix(predictError!);
-      predictStyle = TextStyle(color: theme.colorScheme.error);
-    } else if (predictMaskArea != null || predictScore != null) {
-      predictText = l10n.maskSummary(
-        predictMaskArea ?? 0,
-        (predictScore ?? 0).toStringAsFixed(4),
-        (predictElapsedMs ?? 0).round(),
-      );
-    } else if (hasPrompts && !hasMask) {
-      predictText = l10n.maskNotComputed;
-    }
-
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: <Widget>[
@@ -1307,16 +1301,11 @@ class _ImageStatusBar extends StatelessWidget {
           overflow: TextOverflow.ellipsis,
           textAlign: TextAlign.center,
         ),
-        if (predictText != null) ...<Widget>[
-          const SizedBox(height: 6),
-          Text(
-            predictText,
-            style: predictStyle,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            textAlign: TextAlign.center,
-          ),
-        ],
+        const SizedBox(height: 8),
+        FilledButton.tonal(
+          onPressed: onClearPrompts,
+          child: Text(l10n.clearPrompts),
+        ),
       ],
     );
   }
