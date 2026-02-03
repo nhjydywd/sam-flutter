@@ -12,6 +12,6 @@ import 'package:sam_flutter/main.dart';
 void main() {
   testWidgets('App boots', (WidgetTester tester) async {
     await tester.pumpWidget(const SamFlutterApp());
-    expect(find.textContaining('sam-flutter'), findsWidgets);
+    expect(find.text('Hello, world'), findsOneWidget);
   });
 }
