@@ -4,6 +4,9 @@
 *.pyc
 *.swp
 .DS_Store
+macos/DerivedData/
+.flutter-plugins
+.flutter-plugins-dependencies
 .atom/
 .build/
 .buildlog/

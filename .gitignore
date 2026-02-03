@@ -2,5 +2,14 @@ server/.venv/
 server/sam2_smoke_out/
 server/models/sam2/
 
+.DS_Store
+**/DerivedData/
+
+# Flutter build artifacts (repo-wide)
+**/.dart_tool/
+**/build/
+**/.flutter-plugins
+**/.flutter-plugins-dependencies
+
 **/__pycache__/
 *.pyc
