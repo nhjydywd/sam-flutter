@@ -1,19 +1,32 @@
 # Server Utilities
 
-## macOS setup (venv)
+## One-click HTTP server
 
-One-click launch (creates venv if needed, installs deps, downloads the smallest SAM2 model, then runs):
+One-click launch (creates venv if needed, installs deps, downloads the smallest SAM2.1 model, then starts HTTP):
 
 ```bash
-./server/launch.sh --image /path/to/image.jpg --point 320 240
+./server/launch.sh
 ```
 
-## SAM2 basic smoke test
+By default it listens on `0.0.0.0:8000`. Override with:
 
-Script: `server/test_sam2_basic.py`
+```bash
+SAM2_SERVER_HOST=127.0.0.1 SAM2_SERVER_PORT=8000 ./server/launch.sh
+```
 
-This verifies you can load a SAM2 model (config name + checkpoint), run a prompt-based
-segmentation on a single image, and save the resulting mask + overlay.
+Open endpoints:
+
+- `GET /health`
+- `GET /models`
+- `POST /model/select`
+- `POST /sessions`
+- `POST /sessions/{session_id}/image` (multipart upload)
+- `POST /sessions/{session_id}/predict` (JSON prompts)
+- `DELETE /sessions/{session_id}`
+
+FastAPI docs:
+
+- `GET /docs`
 
 ### Model downloads
 
@@ -23,33 +36,6 @@ Interactive model manager (prints present/missing; lets you download by index or
 python3 server/manage_model.py
 ```
 
-### Install deps
-
-Recommended: use `./server/launch.sh` (it installs deps automatically).
-
-Manual alternative (create/activate a venv, then install):
-
-```bash
-python3 -m pip install -r server/requirements.txt
-```
-
-### Run
-
-First, download the tiny model files into `server/models/sam2/`:
-
-```bash
-./server/download_sam2_tiny.sh
-```
-
-```bash
-python3 server/test_sam2_basic.py \
-  --model-cfg configs/sam2.1/sam2.1_hiera_t.yaml \
-  --checkpoint server/models/sam2/sam2.1_hiera_tiny.pt \
-  --image /abs/path/to/image.jpg \
-  --point 320 240
-```
-
-If you use `./server/download_sam2_tiny.sh`, you can omit `--model-cfg/--checkpoint`;
-the script will prompt to pick a locally downloaded checkpoint (or auto-select if only one).
-
-Outputs go to `server/sam2_smoke_out/` by default.
+Note: `./server/launch.sh` downloads **the smallest checkpoint (sam2.1_hiera_tiny)** for fast verification.
+If you need better quality, use `python3 server/manage_model.py` to download larger checkpoints and then
+call `POST /model/select` with the desired `model_key`.

@@ -3,7 +3,7 @@
 Model manager for this repo.
 
 Supports downloading model weights for:
-  - SAM2.1: 4 checkpoints (hiera_tiny/small/base_plus/large) + their config YAMLs
+  - SAM2.1: 4 checkpoints (hiera_tiny/small/base_plus/large)
 
 It prints which models are already present under server/models/, which are missing,
 then prompts you to download by index (or 'a' to download all missing).

@@ -13,3 +13,8 @@ torchvision>=0.20.1
 
 # SAM2 code (provides `import sam2`)
 git+https://github.com/facebookresearch/sam2.git
+
+# HTTP server
+fastapi>=0.110
+uvicorn>=0.29
+python-multipart>=0.0.9

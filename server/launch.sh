@@ -35,6 +35,13 @@ pick_python() {
   exit 1
 }
 
+if ! command -v git >/dev/null 2>&1; then
+  echo "Error: git not found. It's required to install SAM2 from GitHub." >&2
+  echo "On macOS, install Xcode Command Line Tools:" >&2
+  echo "  xcode-select --install" >&2
+  exit 1
+fi
+
 ensure_venv() {
   if [[ -d "${VENV_DIR}" ]]; then
     return
@@ -58,6 +65,8 @@ import numpy  # noqa: F401
 import PIL  # noqa: F401
 import torch  # noqa: F401
 import sam2  # noqa: F401
+import fastapi  # noqa: F401
+import uvicorn  # noqa: F401
 PY
     return
   fi
